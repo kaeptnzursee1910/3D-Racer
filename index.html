@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="VELOX" />
+  <meta name="theme-color" content="#07080f" />
+  <meta name="format-detection" content="telephone=no" />
+  <title>VELOX – 3D Racing</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icon-180.png" />
+  <link rel="icon" type="image/png" href="assets/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="gl"></canvas>
+    <div id="speedlines"></div>
+    <div id="vignette"></div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="hud-tl">
+        <div id="hud-posbox"><span id="hud-pos">1</span><span id="hud-pos-total">/8</span></div>
+        <div id="hud-lap">RUNDE 1/3</div>
+        <div id="hud-board"></div>
+      </div>
+      <div id="hud-tc">
+        <div class="t-row"><span class="lbl">ZEIT</span><span id="hud-time">0:00.000</span></div>
+        <div class="t-row"><span class="lbl">RUNDE</span><span id="hud-laptime">0:00.000</span></div>
+        <div class="t-row"><span class="lbl">BESTE</span><span id="hud-best">--:--.---</span><span id="hud-delta"></span></div>
+      </div>
+      <canvas id="minimap"></canvas>
+      <canvas id="speedo"></canvas>
+      <div id="hud-lights"><span></span><span></span><span></span><span></span><span></span></div>
+      <div id="hud-msg"></div>
+      <div id="hud-sub"></div>
+      <div id="hud-wrong">⚠ FALSCHE RICHTUNG</div>
+      <div id="hud-fps"></div>
+    </div>
+
+    <!-- Touch-Steuerung -->
+    <div id="touch" class="hidden">
+      <div id="top-buttons">
+        <button class="icon-btn" data-ctl="camera" aria-label="Kamera">🎥</button>
+        <button class="icon-btn" data-ctl="pause" aria-label="Pause">❚❚</button>
+      </div>
+      <div id="steer-hint">◀ WISCHEN ZUM LENKEN ▶</div>
+      <div id="steer-base"></div>
+      <div id="steer-knob"></div>
+      <div id="steer-buttons">
+        <button class="ctl dir" data-ctl="left">◀</button>
+        <button class="ctl dir" data-ctl="right">▶</button>
+      </div>
+      <div id="pedals">
+        <button class="ctl small" data-ctl="drift">DRIFT</button>
+        <button class="ctl round" data-ctl="nitro">N₂O</button>
+        <button class="ctl pedal brake" data-ctl="brake">BREMSE</button>
+        <button class="ctl pedal gas" data-ctl="gas">GAS</button>
+      </div>
+    </div>
+
+    <!-- Titel -->
+    <section id="screen-title" class="screen">
+      <div class="logo-wrap">
+        <div class="logo">VELOX</div>
+        <div class="logo-sub">3D RACING</div>
+      </div>
+      <div class="tap">Tippen zum Starten</div>
+      <div class="foot">Für das beste Erlebnis: Querformat · Zum Home-Bildschirm hinzufügen für Vollbild</div>
+    </section>
+
+    <!-- Hauptmenü -->
+    <section id="screen-main" class="screen hidden">
+      <div class="menu-left">
+        <div class="logo small">VELOX</div>
+        <nav class="main-nav">
+          <button class="big-btn primary" data-act="quick"><span>🏁</span>Schnelles Rennen</button>
+          <button class="big-btn" data-act="champ"><span>🏆</span>Meisterschaft</button>
+          <button class="big-btn" data-act="trial"><span>⏱</span>Zeitfahren</button>
+          <button class="big-btn" data-act="garage"><span>🚗</span>Garage</button>
+          <button class="big-btn" data-act="records"><span>📊</span>Rekorde</button>
+          <button class="big-btn" data-act="settings"><span>⚙️</span>Einstellungen</button>
+        </nav>
+      </div>
+      <div class="menu-right">
+        <button class="pill" data-act="fullscreen">⛶ Vollbild</button>
+        <button class="pill" data-act="help">? Steuerung</button>
+      </div>
+      <div class="menu-stats" id="menu-stats"></div>
+    </section>
+
+    <!-- Streckenwahl -->
+    <section id="screen-tracks" class="screen hidden panel-screen">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2 id="tracks-title">Strecke wählen</h2><span></span></header>
+      <div id="track-list" class="track-list"></div>
+      <div id="race-options" class="options-bar">
+        <div class="opt"><label>Runden</label><div class="stepper" data-opt="laps"><button>−</button><span>3</span><button>+</button></div></div>
+        <div class="opt"><label>Gegner</label><div class="stepper" data-opt="opponents"><button>−</button><span>7</span><button>+</button></div></div>
+        <div class="opt"><label>Schwierigkeit</label><div class="seg" data-opt="difficulty"><button data-v="easy">Leicht</button><button data-v="normal">Normal</button><button data-v="hard">Schwer</button></div></div>
+      </div>
+      <footer><button class="big-btn primary" data-act="tracks-next">Weiter ›</button></footer>
+    </section>
+
+    <!-- Garage -->
+    <section id="screen-garage" class="screen hidden garage">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2>Garage</h2><span></span></header>
+      <button class="arrow left" data-act="car-prev">‹</button>
+      <button class="arrow right" data-act="car-next">›</button>
+      <div class="car-info">
+        <div class="car-name" id="car-name"></div>
+        <div class="car-desc" id="car-desc"></div>
+        <div class="stats" id="car-stats"></div>
+        <div class="swatches" id="swatches"></div>
+        <div class="lock" id="car-lock">🔒 Gesperrt – gewinne eine Meisterschaft</div>
+      </div>
+      <footer><button class="big-btn primary" id="garage-go" data-act="garage-go">Los geht's ›</button></footer>
+    </section>
+
+    <!-- Meisterschaft -->
+    <section id="screen-champ" class="screen hidden panel-screen">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2>Meisterschaft</h2><span></span></header>
+      <div class="champ-body">
+        <div class="champ-intro" id="champ-intro">
+          <p>Vier Rennen, acht Fahrer, ein Titel. Punkte: 10 · 8 · 6 · 5 · 4 · 3 · 2 · 1</p>
+          <div class="champ-tracks" id="champ-tracks"></div>
+          <div class="opt"><label>Schwierigkeit</label><div class="seg" data-opt="champDifficulty"><button data-v="easy">Leicht</button><button data-v="normal">Normal</button><button data-v="hard">Schwer</button></div></div>
+        </div>
+        <div class="standings" id="champ-standings"></div>
+      </div>
+      <footer><button class="big-btn primary" id="champ-go" data-act="champ-go">Fahrzeug wählen ›</button></footer>
+    </section>
+
+    <!-- Einstellungen -->
+    <section id="screen-settings" class="screen hidden panel-screen">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2>Einstellungen</h2><span></span></header>
+      <div class="settings-grid">
+        <div class="opt"><label>Grafikqualität</label><div class="seg" data-set="quality"><button data-v="auto">Auto</button><button data-v="low">Niedrig</button><button data-v="medium">Mittel</button><button data-v="high">Hoch</button></div></div>
+        <div class="opt"><label>Lenkung (Touch)</label><div class="seg" data-set="steering"><button data-v="drag">Wischen</button><button data-v="buttons">Tasten</button><button data-v="tilt">Neigen</button></div></div>
+        <div class="opt"><label>Automatisch Gas geben</label><div class="seg" data-set="autoGas"><button data-v="false">Aus</button><button data-v="true">An</button></div></div>
+        <div class="opt"><label>Lenkempfindlichkeit</label><input type="range" min="0.5" max="1.6" step="0.05" data-set="sensitivity" /></div>
+        <div class="opt"><label>Neigung umkehren</label><div class="seg" data-set="invertTilt"><button data-v="false">Nein</button><button data-v="true">Ja</button></div></div>
+        <div class="opt"><label>Musik</label><input type="range" min="0" max="1" step="0.05" data-set="musicVol" /></div>
+        <div class="opt"><label>Effekte</label><input type="range" min="0" max="1" step="0.05" data-set="sfxVol" /></div>
+        <div class="opt"><label>Einheit</label><div class="seg" data-set="units"><button data-v="kmh">km/h</button><button data-v="mph">mph</button></div></div>
+        <div class="opt"><label>FPS anzeigen</label><div class="seg" data-set="showFps"><button data-v="false">Aus</button><button data-v="true">An</button></div></div>
+        <div class="opt"><label>Fahrername</label><input type="text" maxlength="12" data-set="playerName" /></div>
+        <div class="opt"><label>Spielstand</label><button class="pill danger" data-act="reset-data">Alles zurücksetzen</button></div>
+      </div>
+      <p class="hint" id="settings-hint">Änderungen an der Grafikqualität gelten ab dem nächsten Rennen.</p>
+    </section>
+
+    <!-- Rekorde -->
+    <section id="screen-records" class="screen hidden panel-screen">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2>Rekorde</h2><span></span></header>
+      <div id="records-body" class="records"></div>
+    </section>
+
+    <!-- Hilfe -->
+    <section id="screen-help" class="screen hidden panel-screen">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2>Steuerung</h2><span></span></header>
+      <div class="help">
+        <div class="help-col">
+          <h3>📱 iPad / Touch</h3>
+          <ul>
+            <li><b>Lenken:</b> linke Bildschirmhälfte wischen (oder Tasten / Neigen in den Einstellungen)</li>
+            <li><b>GAS / BREMSE:</b> rechts unten – Finger kann zwischen den Pedalen gleiten</li>
+            <li><b>N₂O:</b> Nitro-Boost – lädt sich durch Driften auf</li>
+            <li><b>DRIFT:</b> halten + lenken für kontrollierte Drifts</li>
+            <li>Tipp: Gas <i>und</i> Bremse gleichzeitig + Lenken = Powerslide</li>
+          </ul>
+        </div>
+        <div class="help-col">
+          <h3>⌨️ Tastatur / 🎮 Controller</h3>
+          <ul>
+            <li><b>W / ↑</b> Gas · <b>S / ↓</b> Bremse/Rückwärts · <b>A D / ← →</b> Lenken</li>
+            <li><b>Leertaste</b> Drift · <b>Shift / N</b> Nitro</li>
+            <li><b>C</b> Kamera · <b>R</b> Zurücksetzen · <b>Esc / P</b> Pause</li>
+            <li>Controller: Stick lenken, RT Gas, LT Bremse, X Drift, LB/RB Nitro</li>
+          </ul>
+          <h3>💡 Tipps</h3>
+          <ul>
+            <li>Startampel: Gas genau beim Erlöschen halten (Drehzahl im mittleren Bereich) für einen Raketenstart.</li>
+            <li>Im Zeitfahren fährst du gegen deinen eigenen Geist.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pause -->
+    <section id="screen-pause" class="screen hidden overlay">
+      <div class="modal">
+        <h2>PAUSE</h2>
+        <button class="big-btn primary" data-act="resume">Weiter</button>
+        <button class="big-btn" data-act="restart">Neustart</button>
+        <button class="big-btn" data-act="reset-car">Auto zurücksetzen</button>
+        <button class="big-btn" data-act="pause-settings">Einstellungen</button>
+        <button class="big-btn" data-act="quit">Rennen beenden</button>
+      </div>
+    </section>
+
+    <!-- Ergebnisse -->
+    <section id="screen-results" class="screen hidden overlay">
+      <div class="modal wide">
+        <h2 id="results-title">ERGEBNIS</h2>
+        <div id="results-body"></div>
+        <div class="row-btns">
+          <button class="big-btn" data-act="restart">Nochmal</button>
+          <button class="big-btn primary" id="results-next" data-act="results-next">Weiter</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Laden -->
+    <div id="loading" class="hidden">
+      <div class="spinner"></div>
+      <div id="loading-text">Strecke wird gebaut …</div>
+    </div>
+
+    <div id="rotate-hint" class="hidden">
+      <div class="rot-icon">📱↻</div>
+      <div>Bitte das iPad ins Querformat drehen</div>
+      <button class="pill" data-act="dismiss-rotate">Trotzdem spielen</button>
+    </div>
+
+    <div id="toast"></div>
+  </div>
+  <noscript>Dieses Spiel benötigt JavaScript.</noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
