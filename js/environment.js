@@ -2,6 +2,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { clamp, lerp, smoothstep, Noise2D, rng, mergeGeometries, mat4, softParticleTexture, canvasTexture, makeCanvas } from './utils.js';
 import * as TX from './textures.js';
+import { buildTrackside } from './trackside.js';
 
 export const THEMES = {
   coast: {
@@ -12,7 +13,7 @@ export const THEMES = {
     asphalt: '#4b4b52', ground: '#7a9a45', groundVar: 36, shoulder: '#6f8f3c',
     terrainColors: ['#6f8f3c', '#93a552', '#d8c48a'],
     wall: 'stripes', curbA: '#d8262b', curbB: '#f2f2f2',
-    clouds: 0.55, stars: 0, exposure: 1.0, night: false,
+    clouds: 0.55, stars: 0, exposure: 1.0, night: false, bloom: [0.4, 0.92, 0.5],
   },
   canyon: {
     skyTop: '#2d78d6', skyHorizon: '#eccaa4', skyBottom: '#c98a5c',
@@ -22,7 +23,7 @@ export const THEMES = {
     asphalt: '#57534f', ground: '#c2774a', groundVar: 30, shoulder: '#c98d5c',
     terrainColors: ['#b8683b', '#cf8a55', '#8f4a2b'],
     wall: 'concrete', curbA: '#e2a12a', curbB: '#f2f2f2',
-    clouds: 0.25, stars: 0, exposure: 0.95, night: false,
+    clouds: 0.25, stars: 0, exposure: 0.95, night: false, bloom: [0.3, 0.95, 0.5],
   },
   city: {
     skyTop: '#04050d', skyHorizon: '#3a1f5c', skyBottom: '#0a0a12',
@@ -32,7 +33,7 @@ export const THEMES = {
     asphalt: '#303038', ground: '#26272d', groundVar: 16, shoulder: '#3a3b42',
     terrainColors: ['#26272d', '#2c2d34', '#202127'],
     wall: 'neon', curbA: '#18d6ff', curbB: '#f2f2f2',
-    clouds: 0.0, stars: 1, exposure: 1.25, night: true,
+    clouds: 0.0, stars: 1, exposure: 1.25, night: true, bloom: [0.85, 0.55, 0.6],
   },
   alps: {
     skyTop: '#4f93e6', skyHorizon: '#dce9f6', skyBottom: '#c9d8e8',
@@ -42,7 +43,7 @@ export const THEMES = {
     asphalt: '#3f4248', ground: '#e9eff6', groundVar: 14, shoulder: '#e4ebf3',
     terrainColors: ['#eef3f9', '#dfe7f0', '#6f6a66'],
     wall: 'bluewhite', curbA: '#1f58b8', curbB: '#f2f2f2',
-    clouds: 0.45, stars: 0, exposure: 0.9, night: false,
+    clouds: 0.45, stars: 0, exposure: 0.9, night: false, bloom: [0.3, 0.95, 0.5],
   },
 };
 
@@ -131,6 +132,7 @@ export class Environment {
     this.time = 0;
     this.aniso = Math.min(quality.level >= 2 ? 8 : 4, renderer.capabilities.getMaxAnisotropy());
     this.updatables = [];
+    this.blockers = [];
   }
 
   build() {
@@ -145,6 +147,8 @@ export class Environment {
     this.buildTerrain();
     this.buildEnvMap();
     this.buildCommonScenery();
+    this.trackside = buildTrackside(this);
+    this.registerBlockers();
     const fn = {
       coast: () => this.buildCoast(),
       canyon: () => this.buildCanyon(),
@@ -246,7 +250,11 @@ export class Environment {
     const StdMat = this.q.level === 0 ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial;
     const roadMat = new StdMat({ map: roadTex });
     if (roadMat.isMeshStandardMaterial) {
-      roadMat.roughness = th.night ? 0.55 : 0.88;
+      const { normal, rough } = TX.asphaltMaps(this.aniso);
+      roadMat.normalMap = normal;
+      roadMat.normalScale.set(th.night ? 0.18 : 0.35, th.night ? 0.18 : 0.35);
+      roadMat.roughnessMap = rough;
+      roadMat.roughness = th.night ? 0.72 : 1.0;
       roadMat.metalness = 0.0;
       roadMat.envMapIntensity = th.night ? 0.9 : 0.35;
     }
@@ -360,7 +368,7 @@ export class Environment {
   buildTerrain() {
     const tr = this.track;
     const b = (this.bounds = tr.bounds());
-    const size = 2600;
+    const size = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) + 1500;
     const seg = this.q.terrainSeg;
     const cs = size / seg;
     const x0 = b.cx - size / 2, z0 = b.cz - size / 2;
@@ -485,7 +493,8 @@ export class Environment {
   }
 
   // Zufällige Platzierung abseits der Strecke
-  scatter(count, minD, maxD, seed, cb, area = 1700) {
+  scatter(count, minD, maxD, seed, cb, area = 0) {
+    if (!area) area = Math.max(this.bounds.maxX - this.bounds.minX, this.bounds.maxZ - this.bounds.minZ) + 500;
     const r = rng(seed);
     const b = this.bounds;
     const tr = this.track;
@@ -497,6 +506,7 @@ export class Environment {
       const d = nn.d;
       if (d < minD) continue;
       if (maxD < 90 && d > maxD) continue;
+      if (this.isBlocked(x, z)) continue;
       const y = this.heightAt(x, z);
       if (cb(x, y, z, d, r) !== false) placed++;
     }
@@ -530,11 +540,6 @@ export class Environment {
     gs.position.set(p.x, p.y - 0.6, p.z);
     gs.rotation.y = p.heading - Math.PI / 2;
     this.root.add(gs);
-    const p2 = tr.pointAt(-6, tr.wallDist + 9);
-    const gs2 = gs.clone();
-    gs2.position.set(p2.x, p2.y - 0.6, p2.z);
-    gs2.rotation.y = p2.heading + Math.PI / 2;
-    this.root.add(gs2);
 
     // Werbebanden an Geraden
     const ads = [];
@@ -543,9 +548,10 @@ export class Environment {
     const boardGeo = new THREE.PlaneGeometry(11, 2.6);
     const postGeo = new THREE.BoxGeometry(0.25, 3.4, 0.25);
     let ai = 0;
-    const count = 14;
+    const count = 22;
     for (let i = 0; i < count; i++) {
       const along = (tr.length * (i + 0.5)) / count;
+      if (along > tr.length - 200 || along < 70) continue;
       const idx = tr.idxAt(along);
       const side = Math.abs(tr.k[idx]) > 1 / 300 ? -Math.sign(tr.k[idx]) : i % 2 ? 1 : -1;
       const q = tr.pointAt(along, side * (tr.wallDist + 2.2));
@@ -565,12 +571,12 @@ export class Environment {
     }
   }
 
-  buildGrandstand() {
+  buildGrandstand(len = 56) {
     const g = new THREE.Group();
     const crowd = new THREE.MeshLambertMaterial({ map: TX.crowdTexture() });
     crowd.map.repeat.set(6, 1);
     const conc = new THREE.MeshLambertMaterial({ color: '#9aa0a8' });
-    const L = 56;
+    const L = len;
     for (let i = 0; i < 6; i++) {
       const step = new THREE.Mesh(new THREE.BoxGeometry(L, 1.1, 2), [conc, conc, conc, conc, crowd, conc]);
       step.position.set(0, 0.55 + i * 1.1, -i * 2);
@@ -827,7 +833,7 @@ export class Environment {
         const lx = a * hw, lz = bq * hd;
         const wx = x + lx * c + lz * s, wz = z - lx * s + lz * c;
         const nn = tr.nearest(wx, wz, 48, tmp);
-        if (nn.d < tr.wallDist + 5) return false;
+        if (nn.d < tr.wallDist + 5 || this.isBlocked(wx, wz)) return false;
       }
       for (const o of boxes) {
         if (Math.abs(o.x - x) < (o.hw + hw) * 1.05 && Math.abs(o.z - z) < (o.hd + hd) * 1.05) return false;
@@ -848,7 +854,8 @@ export class Environment {
     // Füllung
     const b = this.bounds;
     for (let i = 0; i < this.q.sceneryMul * 260; i++) {
-      const x = b.cx + (r() - 0.5) * 1500, z = b.cz + (r() - 0.5) * 1500;
+      const ar = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) + 300;
+      const x = b.cx + (r() - 0.5) * ar, z = b.cz + (r() - 0.5) * ar;
       const w = 14 + r() * 20, d = 14 + r() * 20;
       if (fits(x, z, w / 2, d / 2, 0)) boxes.push({ x, z, hw: w / 2, hd: d / 2, h: 15 + Math.pow(r(), 1.4) * 140, rot: 0 });
     }
@@ -941,6 +948,31 @@ export class Environment {
     return canvasTexture(c, { repeat: false });
   }
 
+  softTex() {
+    return softParticleTexture();
+  }
+
+  // Sperrzonen (Boxengasse, Tunnel …) für Bäume/Häuser
+  registerBlockers() {
+    const tr = this.track;
+    const p = {};
+    for (let a = -180; a <= 60; a += 15) {
+      tr.pointAt(a, tr.wallDist + 18, p);
+      this.blockers.push({ x: p.x, z: p.z, r: 20 });
+    }
+    const t = this.trackside && this.trackside.tunnel;
+    if (t) {
+      for (let j = -10; j <= t.count + 10; j += 6) {
+        tr.pointAt(tr.dist[(t.i0 + j + tr.N) % tr.N], 0, p);
+        this.blockers.push({ x: p.x, z: p.z, r: tr.wallDist + 34 });
+      }
+    }
+  }
+  isBlocked(x, z) {
+    for (const b of this.blockers) if ((x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return true;
+    return false;
+  }
+
   addGlowPoints(arr, color, size) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
@@ -983,6 +1015,7 @@ export class Environment {
 
   update(dt, camera, focus) {
     this.time += dt;
+    for (const f of this.updatables) f(dt);
     this.skyUniforms.time.value = this.time;
     this.sky.position.copy(camera.position);
     if (this.waterUniforms) this.waterUniforms.time.value = this.time;

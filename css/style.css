@@ -90,19 +90,23 @@ input[type='text'] { font: inherit; font-size: 17px; padding: 10px 12px; border-
 
 /* Garage */
 .garage { background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0) 25%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.75)); display: flex; flex-direction: column; }
-.arrow { position: absolute; top: 42%; width: 64px; height: 64px; border-radius: 50%; font-size: 40px; line-height: 1; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--line); }
+.arrow { position: absolute; top: 26%; width: 64px; height: 64px; border-radius: 50%; font-size: 40px; line-height: 1; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--line); }
 .arrow.left { left: calc(20px + var(--sal)); }
 .arrow.right { right: calc(20px + var(--sar)); }
 .arrow:active { background: rgba(255, 255, 255, 0.25); }
-.car-info { margin-top: auto; display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'name sw' 'desc sw' 'stats sw' 'lock lock'; gap: 6px 26px; align-items: end; }
+.car-info { margin-top: auto; display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'cls sw' 'name sw' 'desc sw' 'stats sw' 'lock lock'; gap: 6px 26px; align-items: end; }
+.car-cls { grid-area: cls; font-size: 13px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent2); }
 .car-name { grid-area: name; font-size: clamp(30px, 5vw, 54px); font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1; }
 .car-desc { grid-area: desc; color: var(--muted); font-size: 15px; max-width: 560px; }
 .stats { grid-area: stats; display: grid; grid-template-columns: repeat(2, minmax(150px, 260px)); gap: 8px 22px; margin-top: 6px; }
 .stat label { font-size: 11px; font-weight: 800; letter-spacing: 0.12em; color: var(--muted); }
 .stat .bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-top: 4px; }
 .stat .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 4px; transition: width 0.3s; }
-.swatches { grid-area: sw; display: grid; grid-template-columns: repeat(6, 36px); gap: 8px; }
-.swatches button { width: 36px; height: 36px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.2); }
+.paintbox { grid-area: sw; display: flex; flex-direction: column; gap: 12px; align-items: flex-end; }
+.swatches { display: grid; grid-template-columns: repeat(7, 34px); gap: 8px; }
+.liveries button { padding: 8px 10px; font-size: 13px; }
+.stats { grid-template-columns: repeat(3, minmax(120px, 200px)) !important; }
+.swatches button { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.2); }
 .swatches button.on { border-color: #fff; transform: scale(1.12); box-shadow: 0 0 12px rgba(255, 255, 255, 0.6); }
 .lock { grid-area: lock; color: var(--gold); font-weight: 800; display: none; }
 .garage.locked .lock { display: block; }

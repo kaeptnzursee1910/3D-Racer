@@ -12,6 +12,7 @@ import { clamp, rng, hashString, formatTime, formatDelta, lerp } from './utils.j
 
 const STEP = 1 / 120;
 export const POINTS = [10, 8, 6, 5, 4, 3, 2, 1];
+const LIVS = ['plain', 'stripes', 'side', 'twotone', 'race'];
 const AI_NAMES = ['M. Brandt', 'L. Moreau', 'K. Tanaka', 'S. Rossi', 'A. Novak', 'J. Silva', 'E. Larsen', 'R. Okafor', 'T. Weber', 'N. Ivanova'];
 
 export class World {
@@ -70,22 +71,22 @@ export class World {
       usedColors.add(color);
       const t = nOpp > 1 ? i / (nOpp - 1) : 0.5;
       const skill = mode === 'attract' ? 0.9 + r() * 0.06 : lerp(diff.skill[1], diff.skill[0], t) + (r() - 0.5) * 0.01;
-      opp.push({ cdef, color, skill, name: names[i % names.length] });
+      opp.push({ cdef, color, skill, name: names[i % names.length], livery: LIVS[Math.floor(r() * LIVS.length)], number: 2 + Math.floor(r() * 97) });
     }
     if (this.cfg.roster) {
       opp.length = 0;
-      for (const o of this.cfg.roster) opp.push({ cdef: getCarDef(o.carId), color: o.color, skill: o.skill, name: o.name });
+      for (const o of this.cfg.roster) opp.push({ cdef: getCarDef(o.carId), color: o.color, skill: o.skill, name: o.name, livery: o.livery, number: o.number });
     }
     opp.sort((a, b) => b.skill - a.skill);
     let slot = 0;
     for (const o of opp) {
-      const car = new Car(o.cdef, o.color, this.track, { name: o.name, physical: q.physical, night, shadows: q.shadows, accent: r() < 0.3 ? '#151515' : null });
+      const car = new Car(o.cdef, o.color, this.track, { name: o.name, physical: q.physical, night, shadows: q.shadows, livery: o.livery, number: o.number });
       this.addCar(car, slot++);
       this.ais.set(car, new AIDriver(car, this.track, o.skill, r));
     }
     if (mode !== 'attract') {
       const pdef = getCarDef(this.cfg.carId);
-      const car = new Car(pdef, this.cfg.color, this.track, { name: g.storage.settings.playerName || 'Du', isPlayer: true, physical: q.physical, night, player: true, shadows: q.shadows });
+      const car = new Car(pdef, this.cfg.color, this.track, { name: g.storage.settings.playerName || 'Du', isPlayer: true, physical: q.physical, night, player: true, shadows: q.shadows, livery: this.cfg.livery, number: 1 });
       this.addCar(car, slot++);
       this.player = car;
       car.nitro = 0.5;
@@ -404,10 +405,14 @@ export class World {
     const gc = new Car(getCarDef(gh.car), gh.color || '#88ccff', this.track, { ghost: true });
     gc.mesh.traverse((o) => {
       if (o.isMesh) {
-        o.material = o.material.clone();
-        o.material.transparent = true;
-        o.material.opacity = 0.32;
-        o.material.depthWrite = false;
+        const ghostify = (m) => {
+          const c = m.clone();
+          c.transparent = true;
+          c.opacity = 0.3;
+          c.depthWrite = false;
+          return c;
+        };
+        o.material = Array.isArray(o.material) ? o.material.map(ghostify) : ghostify(o.material);
         o.castShadow = false;
       }
     });

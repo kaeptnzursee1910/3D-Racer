@@ -14,7 +14,7 @@ export class Car {
     this.name = opts.name || def.name;
     this.isPlayer = !!opts.isPlayer;
     this.isGhost = !!opts.ghost;
-    this.model = buildCarModel(def, color, { physical: opts.physical, accent: opts.accent, shadowStrong: !opts.shadows });
+    this.model = buildCarModel(def, color, { physical: opts.physical, livery: opts.livery, number: opts.number, shadowStrong: !opts.shadows });
     this.mesh = this.model.root;
     if (opts.night) this.addNightLights(opts.player);
 
@@ -148,7 +148,8 @@ export class Car {
 
     const absLat = Math.abs(p.lateral || 0);
     this.offroad = absLat > tr.halfWidth + 0.6;
-    const gripMul = (this.offroad ? 0.62 : 1) * (tr.def.theme === 'alps' ? 0.93 : 1);
+    const offF = d.offroad ?? 0.55;
+    const gripMul = (this.offroad ? 0.6 + (offF - 0.5) * 0.8 : 1) * (tr.def.theme === 'alps' ? 0.93 : 1);
 
     // Nitro
     const wantsNitro = inp.nitro && this.nitro > 0.01 && vF > 4;
@@ -156,7 +157,7 @@ export class Car {
     if (wantsNitro) this.nitro = Math.max(0, this.nitro - dt / 3.6);
     else this.nitro = Math.min(1, this.nitro + dt * 0.012);
 
-    const maxSpeed = d.maxSpeed * (this.nitroActive ? 1.2 : 1) * (this.offroad ? 0.55 : 1) * this.speedFactor;
+    const maxSpeed = d.maxSpeed * (this.nitroActive ? 1.2 : 1) * (this.offroad ? offF : 1) * this.speedFactor;
 
     // Längsdynamik
     let acc = 0;
@@ -183,7 +184,7 @@ export class Car {
     // Roll- und Luftwiderstand
     acc -= sign(vF) * (0.35 + 0.00022 * vF * vF) * (Math.abs(vF) > 0.05 ? 1 : 0);
     if (inp.throttle <= 0 && !this.nitroActive) acc -= sign(vF) * 1.2 * clamp(Math.abs(vF), 0, 1);
-    if (this.offroad) acc -= sign(vF) * 2.5 * clamp(Math.abs(vF) / 10, 0, 1);
+    if (this.offroad) acc -= sign(vF) * 2.5 * (1 - (offF - 0.5) * 1.8) * clamp(Math.abs(vF) / 10, 0, 1);
     if (inp.handbrake) acc -= sign(vF) * 5 * clamp(Math.abs(vF) / 5, 0, 1);
     // Steigung
     const slopeAlong = (p.slope || 0) * (fx * p.tx + fz * p.tz);
@@ -259,7 +260,7 @@ export class Car {
     // Strecke
     tr.project(this.x, this.z, this.trackIdx, p);
     this.trackIdx = p.idx;
-    const limit = tr.wallDist - 1.05;
+    const limit = tr.wallDist - 1.05 - tr.barrierAt(p.i0, Math.sign(p.lateral) || 1);
     if (Math.abs(p.lateral) > limit) {
       const s = sign(p.lateral);
       const pen = Math.abs(p.lateral) - limit;
@@ -349,7 +350,7 @@ export class Car {
       if (w.front) w.pivot.rotation.y = -this.steer * 0.5;
     }
     const brakeOn = this.braking || (this.input.brake > 0 && this.speed > 0.5);
-    this.model.tail.emissiveIntensity = brakeOn ? 3 : 0.7;
+    this.model.tail.emissiveIntensity = brakeOn ? 2.4 : 0.6;
     if (this.tailGlow) for (const s of this.tailGlow) s.scale.setScalar(brakeOn ? 1.8 : 1.0);
   }
 

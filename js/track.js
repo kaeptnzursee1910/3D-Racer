@@ -79,6 +79,7 @@ export class Track {
     this.bank = smoothArray(bank, 10, 2);
 
     this.computeRacingLine();
+    this.computeBarriers();
     this.buildGrid();
     this._tmp = {};
   }
@@ -175,6 +176,77 @@ export class Track {
   // Startaufstellung: Position i (0 = Pole)
   gridSlot(i) {
     return { along: this.length - 12 - i * 8, lateral: (i % 2 ? 1 : -1) * this.halfWidth * 0.4 };
+  }
+
+  // ----- Reifenstapel an Kurvenaußenseiten (verringern den Platz bis zur Mauer)
+  computeBarriers() {
+    const N = this.N;
+    this.barrierL = new Float32Array(N);
+    this.barrierR = new Float32Array(N);
+    if (this.def.tires === false) return;
+    const thr = 1 / 95;
+    for (let i = 0; i < N; i++) {
+      let kk = 0;
+      for (let o = -8; o <= 22; o++) {
+        const v = this.k[(i + o + N) % N];
+        if (Math.abs(v) > Math.abs(kk)) kk = v;
+      }
+      // Linkskurve (k > 0): außen ist rechts
+      if (Math.abs(kk) > thr) {
+        if (kk > 0) this.barrierR[i] = 0.8;
+        else this.barrierL[i] = 0.8;
+      }
+    }
+    // Startbereich frei halten
+    for (let o = -40; o < 40; o++) {
+      const i = (o + N) % N;
+      this.barrierL[i] = this.barrierR[i] = 0;
+    }
+  }
+  barrierAt(idx, side) {
+    return side > 0 ? this.barrierR[idx] : this.barrierL[idx];
+  }
+
+  // Querschnitt-Profil entlang eines Streckenabschnitts ziehen (für Bauwerke)
+  sweep(i0, count, profile, { uScale = 4, vScale = 8, yFollowBank = true } = {}) {
+    const N = this.N, P = profile.length;
+    const pos = [], uv = [], idx = [];
+    const plen = [0];
+    for (let k = 1; k < P; k++) plen.push(plen[k - 1] + Math.hypot(profile[k][0] - profile[k - 1][0], profile[k][1] - profile[k - 1][1]));
+    for (let j = 0; j <= count; j++) {
+      const i = (((i0 + j) % N) + N) % N;
+      const d = j * this.ds;
+      for (let k = 0; k < P; k++) {
+        const [lat, h] = profile[k];
+        const b = yFollowBank ? clamp(lat, -this.wallDist, this.wallDist) * this.bank[i] : 0;
+        pos.push(this.cx[i] + this.rx[i] * lat, this.cy[i] + b + h, this.cz[i] + this.rz[i] * lat);
+        uv.push(plen[k] / uScale, d / vScale);
+      }
+    }
+    for (let j = 0; j < count; j++)
+      for (let k = 0; k < P - 1; k++) {
+        const a = j * P + k, b = a + 1, c = a + P, d = c + 1;
+        idx.push(a, b, c, b, d, c);
+      }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
+  // Abschnitt mit der geringsten Krümmung im Bereich [from, to] (Anteil der Runde)
+  findStraight(lengthM, from, to, avoid = []) {
+    const N = this.N, w = Math.round(lengthM / this.ds);
+    let best = -1, bv = Infinity;
+    for (let i = Math.floor(from * N); i < Math.floor(to * N); i += 3) {
+      if (avoid.some(([a, b]) => i + w > a && i < b)) continue;
+      let m = 0;
+      for (let o = 0; o < w; o += 2) m = Math.max(m, Math.abs(this.k[(i + o) % N]));
+      if (m < bv) { bv = m; best = i; }
+    }
+    return { i0: best, count: w, maxK: bv };
   }
 
   // ----- Ideallinie ------------------------------------------------------

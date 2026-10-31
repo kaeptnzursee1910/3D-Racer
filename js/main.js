@@ -6,9 +6,10 @@ import { AudioEngine } from './audio.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { Showroom } from './showroom.js';
+import { PostFX } from './postfx.js';
 import { TRACKS, getTrackDef } from './tracks.js';
 import { Track } from './track.js';
-import { CARS, PAINTS, getCarDef, carStats } from './carModel.js';
+import { CARS, PAINTS, LIVERIES, getCarDef, carStats } from './carModel.js';
 import { DIFFICULTY } from './ai.js';
 import { CAM_MODES } from './camera.js';
 import { formatTime, isTouchDevice, rng, clamp } from './utils.js';
@@ -17,9 +18,9 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
 const QUALITY = {
-  low: { level: 0, pixelRatio: 1, shadows: false, shadowSize: 512, shadowRange: 40, terrainSeg: 110, sceneryMul: 0.45, physical: false },
-  medium: { level: 1, pixelRatio: 1.5, shadows: true, shadowSize: 1024, shadowRange: 45, terrainSeg: 150, sceneryMul: 0.75, physical: false },
-  high: { level: 2, pixelRatio: 2, shadows: true, shadowSize: 2048, shadowRange: 60, terrainSeg: 200, sceneryMul: 1, physical: true },
+  low: { level: 0, bloom: false, pixelRatio: 1, shadows: false, shadowSize: 512, shadowRange: 40, terrainSeg: 110, sceneryMul: 0.45, physical: false },
+  medium: { level: 1, bloom: true, pixelRatio: 1.5, shadows: true, shadowSize: 1024, shadowRange: 45, terrainSeg: 150, sceneryMul: 0.75, physical: false },
+  high: { level: 2, bloom: true, pixelRatio: 2, shadows: true, shadowSize: 2048, shadowRange: 60, terrainSeg: 200, sceneryMul: 1, physical: true },
 };
 
 class Game {
@@ -35,6 +36,7 @@ class Game {
     this.camera = new THREE.PerspectiveCamera(64, 1, 0.3, 3200);
     this.audio = new AudioEngine();
     this.input = new Input();
+    this.postfx = new PostFX(this.renderer);
     this.hud = new HUD();
     this.input.onAction = (a) => this.onAction(a);
     this.world = null;
@@ -96,6 +98,8 @@ class Game {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.postfx.setup(q.bloom && this.bloomOk !== false, q.level);
+    this.postfx.resize();
     this.hud.resize();
     const portrait = h > w;
     $('#rotate-hint').classList.toggle('hidden', !(this.touch && portrait && !this.rotateDismissed));
@@ -121,11 +125,15 @@ class Game {
 
     if (this.screen === 'garage' && this.showroom) {
       this.showroom.update(dt);
-      this.showroom.render();
+      this.renderer.toneMappingExposure = 1.0;
+      this.postfx.setBloom(0.45, 0.85, 0.5);
+      this.postfx.render(this.showroom.scene, this.camera);
     } else if (this.world) {
       this.world.update(dt);
-      this.renderer.toneMappingExposure = this.world.env.theme.exposure;
-      this.renderer.render(this.world.scene, this.camera);
+      const th = this.world.env.theme;
+      this.renderer.toneMappingExposure = th.exposure;
+      this.postfx.setBloom(th.bloom[0], th.bloom[1], th.bloom[2]);
+      this.postfx.render(this.world.scene, this.camera);
     }
 
     // FPS / adaptive Auflösung
@@ -137,7 +145,10 @@ class Game {
       this.fpsFrames = 0;
       if (this.storage.settings.quality === 'auto' && this.state === 'race') {
         const old = this.dynScale;
-        if (this.fps < 45) this.dynScale = Math.max(0.6, this.dynScale - 0.1);
+        if (this.fps < 45) {
+          if (this.dynScale <= 0.6 && this.bloomOk !== false && this.fps < 38) this.bloomOk = false;
+          this.dynScale = Math.max(0.6, this.dynScale - 0.1);
+        }
         else if (this.fps > 57) this.dynScale = Math.min(1, this.dynScale + 0.05);
         if (old !== this.dynScale) this.resize();
       }
@@ -511,19 +522,32 @@ class Game {
     if (!this.showroom) this.showroom = new Showroom(this.renderer, this.camera, this.qualityPreset());
     const def = CARS[this.carIdx];
     const sel = this.storage.selection;
+    this.showroom.livery = sel.livery || 'plain';
+    this.showroom.number = this.storage.progress.number || 7;
     if (changed || !this._shownCar || this._shownCar !== def.id) {
       this.showroom.setCar(def, sel.color);
       this._shownCar = def.id;
     }
+    $('#car-cls').textContent = def.cls;
     $('#car-name').textContent = def.name;
     $('#car-desc').textContent = def.desc;
     const st = carStats(def);
-    $('#car-stats').innerHTML = [['HÖCHSTGESCHWINDIGKEIT', st.speed], ['BESCHLEUNIGUNG', st.accel], ['HANDLING', st.handling], ['GEWICHT', st.weight]]
-      .map(([n, v]) => `<div class="stat"><label>${n}</label><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div></div>`)
+    $('#car-stats').innerHTML = [['SPITZE', st.speed, `${Math.round(def.maxSpeed * 3.6 * 0.97)} km/h`], ['BESCHLEUNIGUNG', st.accel, ''], ['HANDLING', st.handling, ''], ['GEWICHT', st.weight, `${def.mass} kg`], ['GELÄNDE', st.offroad, ''], ['NITRO', 0.6, '']]
+      .map(([n, v, t]) => `<div class="stat"><label>${n} <span style="color:var(--text)">${t}</span></label><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div></div>`)
       .join('');
     const sw = $('#swatches');
     sw.innerHTML = PAINTS.map((c) => `<button style="background:${c}" data-color="${c}" class="${c === sel.color ? 'on' : ''}"></button>`).join('');
     sw.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => this.setColor(b.dataset.color)));
+    const lv = $('#liveries');
+    lv.innerHTML = LIVERIES.map((l) => `<button data-v="${l.id}" class="${(sel.livery || 'plain') === l.id ? 'on' : ''}">${l.name}</button>`).join('');
+    lv.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      sel.livery = b.dataset.v;
+      this.storage.save();
+      this.showroom.livery = sel.livery;
+      this.showroom.setColor(sel.color);
+      this.syncSeg(lv, sel.livery);
+      this.audio.click();
+    }));
     const locked = !!def.locked && !this.storage.isUnlocked(def.id);
     $('#screen-garage').classList.toggle('locked', locked);
     const mode = this.flow.mode;
@@ -560,6 +584,7 @@ class Game {
       trackId: sel.track,
       carId: def.id,
       color: sel.color,
+      livery: sel.livery || 'plain',
       laps: mode === 'trial' ? 5 : sel.laps,
       opponents: mode === 'trial' ? 0 : sel.opponents,
       difficulty: sel.difficulty,
@@ -579,12 +604,15 @@ class Game {
       name: n,
       carId: pool[Math.floor(r() * pool.length)].id,
       color: colors[i % colors.length],
+      livery: ['plain', 'stripes', 'side', 'twotone', 'race'][Math.floor(r() * 5)],
+      number: 2 + Math.floor(r() * 97),
       skill: diff.skill[1] - (i / 6) * (diff.skill[1] - diff.skill[0]),
     }));
     this.champ = {
       difficulty: diffKey,
       carId: sel.car,
       color: sel.color,
+      livery: sel.livery || 'plain',
       round: 0,
       roster,
       points: Object.fromEntries([...names, this.storage.settings.playerName || 'Du'].map((n) => [n, 0])),
@@ -595,7 +623,7 @@ class Game {
   startChampRace() {
     const c = this.champ;
     const t = TRACKS[c.round];
-    this.startRace({ mode: 'champ', trackId: t.id, carId: c.carId, color: c.color, laps: 3, opponents: 7, difficulty: c.difficulty, roster: c.roster });
+    this.startRace({ mode: 'champ', trackId: t.id, carId: c.carId, color: c.color, livery: c.livery, laps: 3, opponents: 7, difficulty: c.difficulty, roster: c.roster });
   }
 
   standingsTable() {
@@ -657,7 +685,9 @@ class Game {
       this.dynScale = 1;
       this.resize();
       const w = new World(this, cfg);
+      const t0 = performance.now();
       w.build();
+      this.lastBuildMs = performance.now() - t0;
       this.world = w;
       this.state = 'race';
       $('#loading').classList.add('hidden');

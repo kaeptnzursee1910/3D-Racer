@@ -68,18 +68,18 @@ export class Showroom {
   }
 
   setCar(def, color) {
+    this.def = def;
     if (this.model) {
       this.turn.remove(this.model.root);
-      this.model.paint.dispose();
-      this.model.tail.dispose();
+      this.model.dispose();
     }
-    this.model = buildCarModel(def, color, { physical: this.q.physical, shadowStrong: true });
+    this.model = buildCarModel(def, color, { physical: true, shadowStrong: true, livery: this.livery || 'plain', number: this.number || 7 });
     this.model.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     this.turn.add(this.model.root);
   }
 
   setColor(color) {
-    if (this.model) this.model.paint.color.set(color);
+    if (this.def) this.setCar(this.def, color);
   }
 
   rotateBy(dx) {
@@ -97,7 +97,7 @@ export class Showroom {
     const dist = portrait ? 11 : 8;
     cam.position.set(0, 2.6, dist);
     cam.up.set(0, 1, 0);
-    cam.lookAt(0, 0.6, 0);
+    cam.lookAt(0, portrait ? 0.4 : 0.15, 0);
     if (cam.fov !== 42) {
       cam.fov = 42;
       cam.updateProjectionMatrix();

@@ -217,3 +217,46 @@ export function stripeTexture(a = '#ffffff', b = '#d4202a', n = 6) {
   }
   return canvasTexture(c);
 }
+
+// Normal- und Rauheitskarte für Asphalt (feine Körnung, Fahrspuren glatter)
+export function asphaltMaps(aniso) {
+  const S = 256;
+  const r = rng(91);
+  const h = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i++) h[i] = r();
+  // leicht weichzeichnen
+  const h2 = new Float32Array(S * S);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      let s = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += h[((y + dy + S) % S) * S + ((x + dx + S) % S)];
+      h2[y * S + x] = s / 9;
+    }
+  const nc = makeCanvas(S, S), rc = makeCanvas(S, S);
+  const ng = nc.getContext('2d'), rg = rc.getContext('2d');
+  const ni = ng.createImageData(S, S), ri = rg.createImageData(S, S);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const i = y * S + x;
+      const dx = (h2[y * S + ((x + 1) % S)] - h2[y * S + ((x - 1 + S) % S)]) * 4;
+      const dy = (h2[((y + 1) % S) * S + x] - h2[((y - 1 + S) % S) * S + x]) * 4;
+      const l = Math.hypot(dx, dy, 1);
+      ni.data[i * 4] = ((-dx / l) * 0.5 + 0.5) * 255;
+      ni.data[i * 4 + 1] = ((-dy / l) * 0.5 + 0.5) * 255;
+      ni.data[i * 4 + 2] = (1 / l) * 0.5 * 255 + 127;
+      ni.data[i * 4 + 3] = 255;
+      // Rauheit: Fahrspuren (bei u ~ 0.3 / 0.7) etwas glatter
+      const u = x / S;
+      const lane = Math.exp(-(((u - 0.3) / 0.08) ** 2)) + Math.exp(-(((u - 0.7) / 0.08) ** 2));
+      const v = 200 - lane * 60 + (h2[i] - 0.5) * 80;
+      ri.data[i * 4] = ri.data[i * 4 + 1] = ri.data[i * 4 + 2] = Math.max(0, Math.min(255, v));
+      ri.data[i * 4 + 3] = 255;
+    }
+  ng.putImageData(ni, 0, 0);
+  rg.putImageData(ri, 0, 0);
+  const normal = canvasTexture(nc, { srgb: false, aniso });
+  const rough = canvasTexture(rc, { srgb: false, aniso });
+  normal.repeat.set(3, 12);
+  rough.repeat.set(1, 1);
+  return { normal, rough };
+}
