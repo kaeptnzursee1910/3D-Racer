@@ -70,6 +70,17 @@ Die Verbindung funktioniert genauso wie bei *Horizon Rush*: Die Geräte verbinde
 
 In Netzwerken, die direkte Verbindungen blockieren (Firmen-/Hochschul-WLAN), läuft die Verbindung über einen Verbindungsserver (TURN, metered.ca). Die Zugangsdaten trägt man unter *Mehrspieler → Verbindungseinstellungen* ein; sie stehen nicht im Code, werden nur im Browser gespeichert und reisen im Einladungslink im Teil nach `#` mit (wird nie an einen Server geschickt).
 
+### Datenverkehr (gemessen)
+
+Gemessen mit zwei Browsern bei 20 Zustandspaketen pro Sekunde, 8 Autos im Feld, inklusive WebRTC-Overhead (DTLS/SCTP/UDP/IP):
+
+| | Gast | Gastgeber, je Gast |
+|---|---|---|
+| Empfangen | ≈ 8,5 KB/s (≈ 68 kbit/s) | ≈ 2,7 KB/s |
+| Senden | ≈ 2,7 KB/s (≈ 21 kbit/s) | ≈ 8,5 KB/s |
+
+Ein Gast braucht also unabhängig von der Spielerzahl rund **3–4 MB pro Rennen** (3 Runden, ca. 5 Minuten). Beim Gastgeber wächst der Upload mit jedem Gast: bei 8 Spielern etwa 60 KB/s hoch und 19 KB/s runter (≈ 0,5 Mbit/s bzw. ≈ 25 MB pro Rennen). In der Lobby fließen nur wenige Hundert Byte pro Sekunde. Das Spiel selbst wird einmalig geladen (≈ 350 KB komprimiert) und danach aus dem Offline-Speicher gestartet.
+
 ## Projektstruktur
 
 ```
