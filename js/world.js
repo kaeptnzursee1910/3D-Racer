@@ -73,6 +73,26 @@ export class World {
       const skill = mode === 'attract' ? 0.9 + r() * 0.06 : lerp(diff.skill[1], diff.skill[0], t) + (r() - 0.5) * 0.01;
       opp.push({ cdef, color, skill, name: names[i % names.length], livery: LIVS[Math.floor(r() * LIVS.length)], number: 2 + Math.floor(r() * 97) });
     }
+    if (mode === 'online') {
+      // Feld kommt vollständig vom Gastgeber (gleiche Reihenfolge auf allen Geräten)
+      opp.length = 0;
+      this.cfg.entrants.forEach((e, k) => {
+        const isMe = e.id === this.cfg.localId;
+        const car = new Car(getCarDef(e.carId), e.color, this.track, { name: e.name, isPlayer: isMe, player: isMe, physical: q.physical, night, shadows: q.shadows, livery: e.livery, number: e.number });
+        car.netIdx = k;
+        car.entrantId = e.id;
+        car.human = !e.ai;
+        this.addCar(car, k);
+        if (isMe) {
+          this.player = car;
+          car.nitro = 0.5;
+        } else if (e.ai && this.cfg.isHost) {
+          this.ais.set(car, new AIDriver(car, this.track, e.skill, r));
+        } else {
+          car.remote = true;
+        }
+      });
+    }
     if (this.cfg.roster) {
       opp.length = 0;
       for (const o of this.cfg.roster) opp.push({ cdef: getCarDef(o.carId), color: o.color, skill: o.skill, name: o.name, livery: o.livery, number: o.number });
@@ -84,7 +104,7 @@ export class World {
       this.addCar(car, slot++);
       this.ais.set(car, new AIDriver(car, this.track, o.skill, r));
     }
-    if (mode !== 'attract') {
+    if (mode !== 'attract' && mode !== 'online') {
       const pdef = getCarDef(this.cfg.carId);
       const car = new Car(pdef, this.cfg.color, this.track, { name: g.storage.settings.playerName || 'Du', isPlayer: true, physical: q.physical, night, player: true, shadows: q.shadows, livery: this.cfg.livery, number: 1 });
       this.addCar(car, slot++);
@@ -127,7 +147,12 @@ export class World {
     } else {
       this.env.setStartLights(0);
       this.rig.updateIntro(0, this.focus, 0);
+      if (mode === 'online') this.phase = 'wait';
     }
+  }
+
+  get online() {
+    return this.cfg.mode === 'online';
   }
 
   addCar(car, slot) {
@@ -178,7 +203,11 @@ export class World {
       }
     }
     if (this.phase === 'race' && this.phaseTime > 1.2) this.game.setHudLights(-1);
-    if (this.phase === 'finish' && this.phaseTime > 6 && !this.resultsShown) {
+    if (this.phase === 'wait' && Math.floor(this.phaseTime * 2) !== this._waitMsg) {
+      this._waitMsg = Math.floor(this.phaseTime * 2);
+      if (this._waitMsg % 4 === 0) hud.sub('WARTE AUF MITSPIELER …', 2);
+    }
+    if (this.phase === 'finish' && this.phaseTime > 6 && !this.resultsShown && !this.online) {
       this.resultsShown = true;
       this.game.onRaceComplete(this.results());
     }
@@ -189,6 +218,8 @@ export class World {
       const pi = this.player.input;
       if (this.phase === 'finish' || this.player.finished) {
         // Autopilot
+      } else if (this.menuOpen) {
+        pi.throttle = 0; pi.brake = 1; pi.steer = 0; pi.handbrake = false; pi.nitro = false;
       } else {
         pi.throttle = s.throttle;
         pi.brake = s.brake;
@@ -196,6 +227,12 @@ export class World {
         pi.handbrake = s.handbrake;
         pi.nitro = s.nitro;
       }
+    }
+
+    // Ferngesteuerte Autos (Mitspieler / KI des Gastgebers) nachführen
+    if (this.online) {
+      const now = performance.now();
+      for (const c of this.cars) if (c.remote) c.applyNet(now);
     }
 
     // Physik mit festem Zeitschritt
@@ -231,14 +268,15 @@ export class World {
       audio.update(this.player, near ? { car: near } : null, { x: cam.position.x, z: cam.position.z, rx, rz });
     } else audio.silence();
 
-    if (this.player && this.phase !== 'intro') hud.update(dt, this);
+    if (this.player && this.phase !== 'intro' && this.phase !== 'wait') hud.update(dt, this);
+    if (this.online && this.game.mp) this.game.mp.tick(dt, this);
   }
 
   setPhase(p) {
     this.phase = p;
     this.phaseTime = 0;
     if (p === 'countdown') {
-      this.goDelay = 0.2 + Math.random() * 0.8;
+      this.goDelay = this.fixedGoDelay ?? 0.2 + Math.random() * 0.8;
       this.lastLights = -1;
       this.game.onCountdown();
     }
@@ -256,7 +294,7 @@ export class World {
       if (!this.ais.has(this.player)) this.ais.set(this.player, new AIDriver(this.player, this.track, 0.86));
     }
     // Gummiband
-    if (this.player && this.cfg.mode !== 'trial') {
+    if (this.player && this.cfg.mode !== 'trial' && !this.online) {
       const diff = DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal;
       for (const c of this.cars) {
         if (c === this.player) continue;
@@ -265,6 +303,7 @@ export class World {
       }
     }
     for (const c of this.cars) {
+      if (c.remote) continue;
       if (!racing) {
         // Motor hochdrehen in der Startaufstellung
         const thr = c === this.player ? this.player.input.throttle : this.phase === 'countdown' && this.phaseTime > 2.5 ? 0.6 : 0;
@@ -289,6 +328,7 @@ export class World {
       const a = cars[i];
       for (let j = i + 1; j < cars.length; j++) {
         const b = cars[j];
+        if (a.remote && b.remote) continue;
         const dx0 = b.x - a.x, dz0 = b.z - a.z;
         if (dx0 * dx0 + dz0 * dz0 > 36) continue;
         const afx = Math.sin(a.heading), afz = Math.cos(a.heading);
@@ -303,7 +343,8 @@ export class World {
             const d = Math.sqrt(d2);
             const nx = dx / d, nz = dz / d;
             const pen = 2 * R - d;
-            const ma = a.def.mass, mb = b.def.mass;
+            // ferngesteuerte Autos gelten als unbeweglich (ihr Gerät berechnet die eigene Reaktion)
+            const ma = a.remote ? 1e9 : a.def.mass, mb = b.remote ? 1e9 : b.def.mass;
             const wa = mb / (ma + mb), wb = ma / (ma + mb);
             a.x -= nx * pen * wa;
             a.z -= nz * pen * wa;
@@ -337,6 +378,7 @@ export class World {
   raceLogic() {
     const L = this.track.length;
     for (const c of this.cars) {
+      if (c.remote) continue;
       const lf = Math.floor(c.totalDist / L);
       if (lf > c.maxLapFloor) {
         c.maxLapFloor = lf;
@@ -352,6 +394,7 @@ export class World {
             c.finished = true;
             c.finishTime = this.time;
             if (c === this.player) this.onPlayerFinish();
+            if (this.online && this.game.mp) this.game.mp.carFinished(c);
           }
         }
       }
@@ -364,7 +407,7 @@ export class World {
       return b.totalDist - a.totalDist;
     });
     sorted.forEach((c, i) => (c.position = i + 1));
-    if (this.phase === 'finish' && this.cars.every((c) => c.finished) && !this.resultsShown && this.phaseTime > 2.5) {
+    if (this.phase === 'finish' && !this.online && this.cars.every((c) => c.finished) && !this.resultsShown && this.phaseTime > 2.5) {
       this.resultsShown = true;
       this.game.onRaceComplete(this.results());
     }
@@ -579,7 +622,9 @@ export class World {
       this.rig.updateTV(dt, this.focus, this.track);
       return;
     }
-    if (this.phase === 'intro') {
+    if (this.phase === 'wait') {
+      this.rig.updateIntro(dt, f, 0);
+    } else if (this.phase === 'intro') {
       this.rig.updateIntro(dt, f, clamp(this.phaseTime / 3.0, 0, 1));
       if (this.phaseTime > 2.95) this.rig.snap(f);
     } else if (this.phase === 'finish') {
@@ -601,7 +646,7 @@ export class World {
         time = this.time + remaining / avg;
         estimated = true;
       }
-      return { car: c, name: c.name, carName: c.def.name, color: c.color, time, estimated, bestLap: c.bestLap, isPlayer: c === this.player };
+      return { id: c.entrantId, name: c.name, carName: c.def.name, color: c.color, time, estimated, bestLap: isFinite(c.bestLap) ? c.bestLap : null, isPlayer: c === this.player };
     });
     out.sort((a, b) => a.time - b.time);
     out.forEach((r, i) => (r.pos = i + 1));

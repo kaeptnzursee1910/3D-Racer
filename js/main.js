@@ -7,6 +7,8 @@ import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { Showroom } from './showroom.js';
 import { PostFX } from './postfx.js';
+import { Multiplayer } from './multiplayer.js';
+import { Net } from './net.js';
 import { TRACKS, getTrackDef } from './tracks.js';
 import { Track } from './track.js';
 import { CARS, PAINTS, LIVERIES, getCarDef, carStats } from './carModel.js';
@@ -16,6 +18,7 @@ import { formatTime, isTouchDevice, rng, clamp } from './utils.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const QUALITY = {
   low: { level: 0, bloom: false, pixelRatio: 1, shadows: false, shadowSize: 512, shadowRange: 40, terrainSeg: 110, sceneryMul: 0.45, physical: false },
@@ -59,7 +62,8 @@ class Game {
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 300));
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.state === 'race' && this.world && !this.world.paused) this.pause(true);
+      if (!document.hidden && Net.isHost && Net.peer) Net.keepAlive(Net.peer);
+      if (document.hidden && this.state === 'race' && this.world && !this.world.paused && !this.world.online) this.pause(true);
     });
     // iOS: Zoom-Gesten und Doppeltipp unterbinden
     document.addEventListener('gesturestart', (e) => e.preventDefault());
@@ -74,6 +78,8 @@ class Game {
     });
 
     this.bindUI();
+    this.mp = new Multiplayer(this);
+    this.pendingInvite = Multiplayer.parseInvite((u, pw) => Net.setKey(u, pw));
     this.bindMenuKeys();
     this.startAttract();
     this.show('title');
@@ -275,6 +281,10 @@ class Game {
     this.audio.startMusic({ root: 57, bpm: 104 });
     if (this.storage.settings.steering === 'tilt') this.input.requestTilt();
     this.show('main');
+    if (this.pendingInvite) {
+      this.mp.showStart(this.pendingInvite);
+      this.pendingInvite = null;
+    }
   }
 
   // Menütasten (Tastatur)
@@ -345,6 +355,16 @@ class Game {
         this.flow = { mode: 'garage' };
         this.show('garage');
         break;
+      case 'mp':
+        this.mp.showStart();
+        break;
+      case 'keyform':
+        this.mp.showKeyForm();
+        break;
+      case 'mp-create': case 'mp-join': case 'mp-leave': case 'mp-invite': case 'chat-send':
+      case 'lobby-car-prev': case 'lobby-car-next': case 'lobby-main': case 'key-save': case 'key-del':
+        this.mp.act(a, el);
+        break;
       case 'records':
       case 'help':
         this.show(a);
@@ -392,7 +412,8 @@ class Game {
         this.world?.resetPlayer();
         break;
       case 'quit':
-        this.toMenu();
+        if (this.world && this.world.online) this.mp.leave();
+        else this.toMenu();
         break;
       case 'results-next':
         this.resultsNext();
@@ -414,7 +435,9 @@ class Game {
 
   back() {
     const s = this.screen;
-    if (s === 'tracks' || s === 'records' || s === 'help' || s === 'champ') this.show('main');
+    if (s === 'tracks' || s === 'records' || s === 'help' || s === 'champ' || s === 'mp') this.show('main');
+    else if (s === 'keyform') this.mp.showStart();
+    else if (s === 'lobby') this.mp.leave();
     else if (s === 'settings') {
       if (this.settingsFromPause) this.show('pause');
       else this.show('main');
@@ -701,6 +724,7 @@ class Game {
       const m = getTrackDef(cfg.trackId).music;
       this.audio.startMusic(m);
       this.renderer.compile(w.scene, this.camera);
+      if (cfg.mode === 'online') this.mp.worldReady(w);
     }, 40);
   }
 
@@ -725,10 +749,10 @@ class Game {
   onAction(a) {
     if (this.state !== 'race' || !this.world) return;
     if (a === 'pause') {
-      if (this.world.paused && this.screen !== 'pause') return; // z. B. Einstellungen aus der Pause offen
-      this.pause(!this.world.paused);
-    }
-    else if (this.world.paused) return;
+      const open = this.world.paused || this.world.menuOpen;
+      if (open && this.screen !== 'pause') return; // z. B. Einstellungen aus der Pause offen
+      this.pause(!open);
+    } else if (this.world.paused || this.world.menuOpen) return;
     else if (a === 'camera') {
       const m = this.world.rig.cycle();
       this.storage.settings.camera = this.world.rig.mode;
@@ -739,7 +763,22 @@ class Game {
 
   pause(on) {
     if (!this.world || this.state !== 'race') return;
-    if (this.world.resultsShown) return;
+    if (this.world.resultsShown || this.mp.results) return;
+    const online = this.world.online;
+    $('#screen-pause [data-act="restart"]').style.display = online ? 'none' : '';
+    $('#screen-pause h2').textContent = online ? 'MENÜ' : 'PAUSE';
+    $('#screen-pause [data-act="quit"]').textContent = online ? 'Party verlassen' : 'Rennen beenden';
+    if (online) {
+      // online läuft das Rennen weiter, das eigene Auto bremst
+      this.world.menuOpen = on;
+      this.world.paused = false;
+      if (on) this.show('pause');
+      else {
+        $$('.screen').forEach((s) => s.classList.add('hidden'));
+        this.screen = 'race';
+      }
+      return;
+    }
     this.world.paused = on;
     if (on) {
       this.audio.silence();
@@ -753,9 +792,14 @@ class Game {
     }
   }
 
-  onRaceComplete(results) {
+  onRaceComplete(results, fromNet = false) {
     const w = this.world;
+    if (!w) return;
     const cfg = w.cfg;
+    if (cfg.mode === 'online' && !fromNet) return;
+    results.forEach((r, i) => (r.pos = r.pos || i + 1));
+    w.resultsShown = true;
+    w.menuOpen = false;
     const st = this.storage;
     const me = results.find((r) => r.isPlayer);
     st.progress.races = (st.progress.races || 0) + 1;
@@ -784,7 +828,7 @@ class Game {
       }
       $('#results-body').innerHTML = `<table><tr><th>#</th><th>Fahrer</th><th>Auto</th><th>Zeit</th><th>Beste Runde</th>${ptsCol ? '<th style="text-align:right">Pkt.</th>' : ''}</tr>${results
         .map(
-          (r) => `<tr class="${r.isPlayer ? 'me' : ''}"><td class="pos">${r.pos}</td><td><span class="dot" style="background:${r.color}"></span>${r.name}</td><td>${r.carName}</td><td>${r.estimated ? '≈ ' : ''}${formatTime(r.time)}</td><td>${formatTime(r.bestLap)}</td>${ptsCol ? `<td class="pts">+${POINTS[r.pos - 1] || 0}</td>` : ''}</tr>`
+          (r) => `<tr class="${r.isPlayer ? 'me' : ''}"><td class="pos">${r.pos}</td><td><span class="dot" style="background:${esc(r.color)}"></span>${esc(r.name)}</td><td>${esc(r.carName)}</td><td>${r.estimated ? '≈ ' : ''}${formatTime(r.time)}</td><td>${formatTime(r.bestLap)}</td>${ptsCol ? `<td class="pts">+${POINTS[r.pos - 1] || 0}</td>` : ''}</tr>`
         )
         .join('')}</table>`;
       if (me) extra = `<div class="result-extra"><span>Deine beste Runde: <b>${formatTime(me.bestLap)}</b></span><span>Streckenrekord: <b>${formatTime(st.record(cfg.trackId).lap)}</b></span></div>`;
@@ -800,16 +844,22 @@ class Game {
         }
       }
       $('#results-body').innerHTML += extra;
-      $('#results-next').textContent = cfg.mode === 'champ' ? (this.champ.finished ? 'Endstand ›' : 'Gesamtwertung ›') : 'Menü';
+      $('#results-next').textContent = cfg.mode === 'champ' ? (this.champ.finished ? 'Endstand ›' : 'Gesamtwertung ›') : cfg.mode === 'online' ? (this.mp.isHost ? 'Zur Lobby ›' : 'Party verlassen') : 'Menü';
+      if (cfg.mode === 'online' && !this.mp.isHost) $('#results-body').innerHTML += '<div class="result-extra"><span>Der Gastgeber bringt alle zurück in die Lobby …</span></div>';
     }
     $('#results-body').querySelectorAll('.result-extra').length || ($('#results-body').innerHTML += cfg.mode === 'trial' ? '' : '');
     this.show('results');
     // Neustart in der Meisterschaft nicht erlauben (würde Punkte doppelt zählen)
-    $('#screen-results [data-act="restart"]').style.display = cfg.mode === 'champ' ? 'none' : '';
+    $('#screen-results [data-act="restart"]').style.display = cfg.mode === 'champ' || cfg.mode === 'online' ? 'none' : '';
   }
 
   resultsNext() {
     const mode = this.lastCfg?.mode;
+    if (mode === 'online') {
+      if (this.mp.isHost) this.mp.hostToLobby();
+      else this.mp.leave();
+      return;
+    }
     if (mode === 'champ') {
       $('#hud').classList.add('hidden');
       this.flow = { mode: 'champ' };
@@ -817,6 +867,17 @@ class Game {
       return;
     }
     this.toMenu();
+  }
+
+  // nach einem Online-Rennen zurück in die Lobby
+  returnToLobby() {
+    $('#hud').classList.add('hidden');
+    $('#touch').classList.add('hidden');
+    this.input.setEnabled(false);
+    this.audio.silence();
+    this.startAttract();
+    this.audio.startMusic({ root: 57, bpm: 104 });
+    this.mp.enterLobby();
   }
 
   toMenu() {

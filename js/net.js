@@ -86,6 +86,14 @@ export const Net = {
         setTimeout(() => conn.close(), 300);
         return;
       }
+      // gleiches Gerät verbindet sich neu (z. B. nach Zeitüberschreitung): alte Verbindung ersetzen
+      for (const [oid, oc] of this.conns) {
+        if (oc.peer === conn.peer) {
+          this.conns.delete(oid);
+          try { oc.close(); } catch (_) { /* */ }
+          if (this.onDrop) this.onDrop(oid);
+        }
+      }
       const id = this.nextId++;
       conn.vxId = id;
       this.conns.set(id, conn);

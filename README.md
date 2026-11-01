@@ -6,18 +6,20 @@ Alles wird prozedural erzeugt: Strecken, Landschaften, Fahrzeuge, Texturen, Soun
 
 ## Features
 
-- **4 Strecken mit eigener Welt**
-  - *Sonnenküste* – Sonnenuntergang am Meer mit animiertem Wasser, Palmen, Leuchtturm und Segelbooten
-  - *Canyon-Pass* – rote Felsen, Tafelberge, Kakteen, große Höhenunterschiede, Staub in der Luft
-  - *Neon-City* – Nachtrennen zwischen leuchtenden Hochhäusern, Neonbanden, Straßenlaternen, Scheinwerfer
-  - *Alpen-Ring* – verschneiter Bergkurs mit Tannen, Hütten, Schneefall und etwas weniger Grip
-- **6 Fahrzeuge** mit unterschiedlichen Werten (Höchstgeschwindigkeit, Beschleunigung, Handling, Gewicht) und 12 Lackfarben – der *Phantom LMP* wird durch einen Meisterschaftssieg freigeschaltet
+- **Mehrspieler für bis zu 8 Geräte** (Party mit 4-stelligem Code oder Einladungslink, Lobby mit Chat, Autowahl, Bereit-Status, Ping; freie Plätze füllen Computergegner auf)
+- **4 Strecken à ca. 4 km mit eigener Welt**
+  - *Sonnenküste* – Sonnenuntergang am Meer: Felstunnel, Hafen mit Steg und Booten, Leuchtturm, Palmen, Strandschirme
+  - *Canyon-Pass* – rote Felsen, zwei gewaltige Felsbögen über der Strecke, Tafelberge, Strommasten, große Höhenunterschiede
+  - *Neon-City* – Nachtrennen zwischen leuchtenden Hochhäusern, Hochstraße mit Verkehr, Unterführung, Neonbanden
+  - *Alpen-Ring* – verschneiter Hochgebirgskurs mit Lawinengalerie, Skilift, Leitpfosten, Schneefall und weniger Grip
+  - überall: Boxengasse mit Garagen und Kontrollturm, Tribünen, Reifenstapel (mit Kollision), Kiesbetten, Fangzäune, Bremspunkt-Tafeln, Sponsorbrücke
+- **8 Fahrzeuge** mit eigener Optik und eigenen Werten (Spitze, Beschleunigung, Handling, Gewicht, Geländetauglichkeit): GT, Supersportwagen, Hot Hatch, Muscle-Car, Roadster, Rallye-Geländewagen, Elektro-Hypercar und Le-Mans-Prototyp (Freischaltung durch Meisterschaftssieg). Gerundete Karosserien mit Radhäusern, Glaskabine mit sichtbarem Fahrer, Felgen mit Bremsscheiben und -sätteln, eigene Licht-, Spoiler- und Auspuffvarianten, 14 Lackfarben und 5 Lackierungsstile mit Startnummern
 - **Arcade-Fahrphysik**: Gewichtsverlagerung, Grip-Limit, Drifts/Powerslides, Nitro (lädt sich durch Driften auf), Steigungen, Fahrbahnneigung in Kurven, Mauer- und Fahrzeugkollisionen
 - **KI-Gegner**, die einer berechneten Ideallinie folgen, bremsen, überholen, ausweichen, Nitro nutzen und kleine Fehler machen; drei Schwierigkeitsgrade
 - **Spielmodi**: Schnelles Rennen (1–9 Runden, 0–7 Gegner), **Meisterschaft** über alle 4 Strecken mit Punktewertung, **Zeitfahren** gegen den eigenen **Geist**
 - Startampel mit Raketenstart, Rundenzeiten, Bestzeiten, Delta zum Geist, Live-Rangliste, Minikarte, Tacho mit Drehzahl/Gang/Nitro
 - 3 Kameraperspektiven (Verfolger, weit, Motorhaube), Intro-Kameraflug, TV-Kamera im Ziel und im Menü-Hintergrund
-- Effekte: Echtzeit-Schatten, Spiegelungen auf dem Lack, Reifenqualm, Bremsspuren, Funkenflug, Nitro-Flammen, Geschwindigkeitslinien
+- Effekte: HDR-Rendering mit Bloom und Kantenglättung, Echtzeit-Schatten, Klarlack-Spiegelungen, Asphaltstruktur (nachts nass glänzend), Reifenqualm, Bremsspuren, Funkenflug, Nitro-Flammen, Geschwindigkeitslinien
 - **Sound komplett synthetisiert** (WebAudio): Motor mit Gangwechseln, Reifenquietschen, Wind, Crashs, Nitro – plus prozedurale Synthwave-Musik je Strecke
 - Rekorde, Geister und Einstellungen werden lokal gespeichert
 - Grafikqualität *Auto/Niedrig/Mittel/Hoch* mit automatischer Auflösungsanpassung für flüssige Bildraten
@@ -57,6 +59,17 @@ Dann auf dem iPad `http://<IP-des-Rechners>:8080` öffnen.
 
 Für die Neigungssteuerung fragt Safari einmalig nach der Erlaubnis für den Bewegungssensor (Einstellungen → Lenkung → *Neigen*). Ist das iPad stumm geschaltet, kann Safari den Ton unterdrücken.
 
+## Mehrspieler
+
+Die Verbindung funktioniert genauso wie bei *Horizon Rush*: Die Geräte verbinden sich per WebRTC direkt miteinander ([PeerJS](https://peerjs.com), Vermittlung über den öffentlichen PeerJS-Server).
+
+1. Ein Gerät tippt auf *Mehrspieler → Party eröffnen* und bekommt einen 4-stelligen Code.
+2. Die anderen geben den Code ein und tippen auf *Beitreten* – oder öffnen den **Einladungslink** (*Einladungslink teilen*, z. B. per WhatsApp). Wer ihn öffnet, gibt nur noch seinen Namen ein.
+3. In der Lobby wählt jeder sein Auto, seine Farbe und Lackierung und tippt auf *Bereit*. Der Gastgeber legt Strecke, Runden, Computergegner und Schwierigkeit fest und startet das Rennen. Nebenan gibt es einen Chat.
+4. Nach dem Rennen bringt der Gastgeber alle zurück in die Lobby.
+
+In Netzwerken, die direkte Verbindungen blockieren (Firmen-/Hochschul-WLAN), läuft die Verbindung über einen Verbindungsserver (TURN, metered.ca). Die Zugangsdaten trägt man unter *Mehrspieler → Verbindungseinstellungen* ein; sie stehen nicht im Code, werden nur im Browser gespeichert und reisen im Einladungslink im Teil nach `#` mit (wird nie an einen Server geschickt).
+
 ## Projektstruktur
 
 ```
@@ -64,6 +77,10 @@ index.html            Oberfläche (Menüs, HUD, Touch-Steuerung)
 css/style.css         Styling
 js/main.js            Spielsteuerung, Menüs, Renderer, Spielschleife
 js/world.js           Rennablauf, Runden, Kollisionen, Effekte, Geist
+js/net.js             WebRTC-Verbindung (PeerJS), Code, TURN, Verkehrszähler
+js/multiplayer.js     Party, Lobby, Chat, Einladungslink, Online-Rennablauf
+js/trackside.js       Streckendetails (Boxengasse, Tunnel, Brücken, Reifenstapel …)
+js/postfx.js          Bloom-Nachbearbeitung
 js/track.js           Streckengeometrie, Projektion, Ideallinie, Tempoprofil
 js/tracks.js          Streckendefinitionen
 js/environment.js     Himmel, Licht, Gelände, Wasser, Landschaft, Wetter
@@ -78,5 +95,5 @@ js/hud.js             Tacho, Minikarte, Anzeigen
 js/showroom.js        Garage
 js/storage.js         Speicherstände
 sw.js                 Service Worker (Offline-Modus)
-vendor/               three.js r160 (MIT-Lizenz)
+vendor/               three.js r160 + Nachbearbeitungs-Module, PeerJS 1.5.4 (jeweils MIT-Lizenz)
 ```

@@ -354,6 +354,81 @@ export class Car {
     if (this.tailGlow) for (const s of this.tailGlow) s.scale.setScalar(brakeOn ? 1.8 : 1.0);
   }
 
+  // ----- Netzwerk ---------------------------------------------------------
+  // Kompakter Zustand (ganzzahlig, ~45 Byte als JSON):
+  // [Index, x dm, y dm, z dm, Richtung mrad, vx dm/s, vz dm/s, Lenkung %, Flags, Distanz dm, Runden, Drehzahl %]
+  packState(idx) {
+    const f = (this.nitroActive ? 1 : 0) | (this.braking ? 2 : 0) | (this.drifting ? 4 : 0) | (this.finished ? 8 : 0) | (this.input.throttle > 0 ? 16 : 0);
+    return [idx, Math.round(this.x * 10), Math.round(this.y * 10), Math.round(this.z * 10), Math.round(this.heading * 1000),
+      Math.round(this.vx * 10), Math.round(this.vz * 10), Math.round(this.steer * 100), f, Math.round(this.totalDist * 10), this.lapsDone, Math.round(this.rpm * 100)];
+  }
+
+  pushNet(a, now) {
+    if (!this.netBuf) this.netBuf = [];
+    this.lastPack = a;
+    this.netBuf.push({ t: now, x: a[1] / 10, y: a[2] / 10, z: a[3] / 10, h: a[4] / 1000, vx: a[5] / 10, vz: a[6] / 10, st: a[7] / 100, f: a[8], d: a[9] / 10, l: a[10], rpm: a[11] / 100 });
+    if (this.netBuf.length > 10) this.netBuf.shift();
+  }
+
+  // Ferngesteuertes Auto: 110 ms in der Vergangenheit zwischen zwei Paketen interpolieren
+  applyNet(now) {
+    const buf = this.netBuf;
+    if (!buf || !buf.length) return;
+    const rt = now - 110;
+    let a = buf[0], b = null;
+    for (let i = 0; i < buf.length - 1; i++) {
+      if (buf[i].t <= rt && buf[i + 1].t >= rt) { a = buf[i]; b = buf[i + 1]; break; }
+    }
+    let x, z, h, d, vx, vz;
+    if (b) {
+      const t = (rt - a.t) / Math.max(1, b.t - a.t);
+      x = a.x + (b.x - a.x) * t;
+      z = a.z + (b.z - a.z) * t;
+      h = a.h + wrapAngle(b.h - a.h) * t;
+      d = a.d + (b.d - a.d) * t;
+      vx = a.vx + (b.vx - a.vx) * t;
+      vz = a.vz + (b.vz - a.vz) * t;
+      a = b;
+    } else {
+      // keine neueren Daten: kurz mit der letzten Geschwindigkeit weiterrechnen
+      a = buf[buf.length - 1];
+      const dt = clamp((rt - a.t) / 1000, 0, 0.3);
+      x = a.x + a.vx * dt;
+      z = a.z + a.vz * dt;
+      h = a.h;
+      d = a.d + Math.hypot(a.vx, a.vz) * dt;
+      vx = a.vx;
+      vz = a.vz;
+    }
+    // Sprünge (z. B. Zurücksetzen) sofort übernehmen, sonst weich nachführen
+    const jump = Math.hypot(x - this.x, z - this.z) > 15;
+    const k = jump ? 1 : 0.6;
+    this.x += (x - this.x) * k;
+    this.z += (z - this.z) * k;
+    this.heading = wrapAngle(this.heading + wrapAngle(h - this.heading) * k);
+    this.vx = vx;
+    this.vz = vz;
+    this.totalDist = d;
+    this.lapsDone = a.l;
+    this.rpm = a.rpm;
+    this.steer = a.st;
+    this.nitroActive = !!(a.f & 1);
+    this.braking = !!(a.f & 2);
+    this.drifting = !!(a.f & 4);
+    if (a.f & 8) this.finished = true;
+    this.input.throttle = a.f & 16 ? 1 : 0;
+    this.input.brake = this.braking ? 1 : 0;
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    this.speed = vx * fx + vz * fz;
+    this.latSpeed = vx * -fz + vz * fx;
+    this.slip = this.drifting ? 0.8 : clamp(Math.abs(this.latSpeed) / 6, 0, 1);
+    this.track.project(this.x, this.z, this.trackIdx, this.proj);
+    this.trackIdx = this.proj.idx;
+    this.lastAlong = this.proj.along;
+    this.y = this.proj.y;
+    this.offroad = Math.abs(this.proj.lateral) > this.track.halfWidth + 0.6;
+  }
+
   // Weltposition eines lokalen Punktes am Fahrzeug
   localToWorld(v, out) {
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);

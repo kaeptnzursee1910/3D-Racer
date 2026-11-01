@@ -79,6 +79,7 @@
         <div class="logo small">VELOX</div>
         <nav class="main-nav">
           <button class="big-btn primary" data-act="quick"><span>🏁</span>Schnelles Rennen</button>
+          <button class="big-btn" data-act="mp"><span>👥</span>Mehrspieler</button>
           <button class="big-btn" data-act="champ"><span>🏆</span>Meisterschaft</button>
           <button class="big-btn" data-act="trial"><span>⏱</span>Zeitfahren</button>
           <button class="big-btn" data-act="garage"><span>🚗</span>Garage</button>
@@ -136,6 +137,66 @@
         <div class="standings" id="champ-standings"></div>
       </div>
       <footer><button class="big-btn primary" id="champ-go" data-act="champ-go">Fahrzeug wählen ›</button></footer>
+    </section>
+
+    <!-- Mehrspieler: Start -->
+    <section id="screen-mp" class="screen hidden panel-screen">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2>Mehrspieler</h2><span></span></header>
+      <div class="mp-start">
+        <p class="note" id="mp-note">Bis zu 8 Spieler, jeder auf seinem eigenen Gerät. Freie Plätze füllen Computergegner auf.</p>
+        <label class="field"><span>Dein Name</span><input type="text" id="mp-name" maxlength="14" autocomplete="off" /></label>
+        <button class="big-btn primary" id="mp-create" data-act="mp-create"><span>🏁</span>Party eröffnen</button>
+        <div class="join-row">
+          <label class="field"><span>Code einer Party</span><input type="text" id="mp-code" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" /></label>
+          <button class="big-btn" data-act="mp-join">Beitreten</button>
+        </div>
+        <p class="note"><button class="linkbtn" data-act="keyform">Verbindungseinstellungen</button></p>
+        <p class="error" id="mp-err" hidden></p>
+      </div>
+    </section>
+
+    <!-- Mehrspieler: Verbindungsserver -->
+    <section id="screen-keyform" class="screen hidden panel-screen">
+      <header><button class="back" data-act="back">‹ Zurück</button><h2>Verbindungsserver</h2><span></span></header>
+      <div class="mp-start">
+        <p class="note">In manchen Netzwerken, etwa in Firmen- oder Hochschul-WLANs, können sich Geräte nicht direkt verbinden. Dann läuft die Verbindung über einen Verbindungsserver. Die Zugangsdaten werden nur auf diesem Gerät gespeichert und reisen im Einladungslink mit (im Teil nach #, der nie an einen Server geht).</p>
+        <label class="field"><span>Benutzername</span><input type="text" id="key-user" autocomplete="off" autocapitalize="off" spellcheck="false" /></label>
+        <label class="field"><span>Passwort</span><input type="password" id="key-pass" autocomplete="off" autocapitalize="off" spellcheck="false" /></label>
+        <div class="row-btns" style="justify-content:flex-start"><button class="big-btn primary" data-act="key-save">Speichern</button><button class="big-btn" data-act="key-del">Löschen</button></div>
+      </div>
+    </section>
+
+    <!-- Mehrspieler: Lobby -->
+    <section id="screen-lobby" class="screen hidden panel-screen">
+      <header><button class="back" data-act="mp-leave">‹ Verlassen</button><h2>Lobby</h2><div class="code-pill" id="lobby-code">----</div></header>
+      <div class="lobby-grid">
+        <div class="lobby-col">
+          <h3 id="lobby-count">Spieler</h3>
+          <ul class="plist" id="lobby-players"></ul>
+          <div class="lobby-settings" id="lobby-settings"></div>
+        </div>
+        <div class="lobby-col">
+          <h3>Dein Auto</h3>
+          <div class="car-pick">
+            <button class="mini-arrow" data-act="lobby-car-prev">‹</button>
+            <div><div class="car-cls" id="lobby-car-cls"></div><div class="lobby-car-name" id="lobby-car-name"></div></div>
+            <button class="mini-arrow" data-act="lobby-car-next">›</button>
+          </div>
+          <div class="stats small" id="lobby-car-stats"></div>
+          <div class="swatches" id="lobby-swatches"></div>
+          <div class="seg liveries" id="lobby-liveries"></div>
+        </div>
+        <div class="lobby-col chat">
+          <h3>Chat</h3>
+          <div class="chat-log" id="chat-log"></div>
+          <div class="chat-input"><input type="text" id="chat-text" maxlength="200" placeholder="Nachricht …" autocomplete="off" /><button class="pill" data-act="chat-send">Senden</button></div>
+        </div>
+      </div>
+      <footer class="lobby-foot">
+        <span class="lobby-status" id="lobby-status"></span>
+        <button class="big-btn" data-act="mp-invite">🔗 Einladungslink teilen</button>
+        <button class="big-btn primary" id="lobby-main" data-act="lobby-main">Bereit</button>
+      </footer>
     </section>
 
     <!-- Einstellungen -->
@@ -233,6 +294,7 @@
     <div id="toast"></div>
   </div>
   <noscript>Dieses Spiel benötigt JavaScript.</noscript>
+  <script src="vendor/peerjs.min.js" defer></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
