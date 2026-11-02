@@ -936,8 +936,9 @@ export function buildCarModel(def, color, opts = {}) {
   const livery = opts.livery || 'plain';
   const map = liveryTexture(P.id, color, livery, opts.number ?? 7);
   const paint = opts.physical
-    ? new THREE.MeshPhysicalMaterial({ map, metalness: 0.55, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.15 })
+    ? new THREE.MeshPhysicalMaterial({ map, metalness: 0.62, roughness: 0.36, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.2, normalMap: flakeTexture(), normalScale: new THREE.Vector2(0.09, 0.09) })
     : new THREE.MeshStandardMaterial({ map, metalness: 0.6, roughness: 0.28, envMapIntensity: 1.1 });
+  const blurMat = new THREE.MeshBasicMaterial({ map: wheelBlurTexture(), transparent: true, opacity: 0, depthWrite: false, color: P.rim.color });
   const plainPaint = new THREE.MeshStandardMaterial({ color, metalness: 0.6, roughness: 0.3 });
   const tailMat = new THREE.MeshStandardMaterial({ vertexColors: true, emissive: '#e00008', emissiveIntensity: 0.7, roughness: 0.2 });
 
@@ -993,6 +994,11 @@ export function buildCarModel(def, color, opts = {}) {
       t.castShadow = true;
       spin.add(t);
       spin.add(new THREE.Mesh(wg.rimGeo, M.rim));
+      // Bewegungsunschärfe der Felge bei hohem Tempo
+      const blur = new THREE.Mesh(new THREE.CircleGeometry(P.wr * 0.7, 24).rotateY(sx * Math.PI / 2), blurMat);
+      blur.position.x = sx * (P.tw * 0.36);
+      blur.renderOrder = 3;
+      pivot.add(blur);
       pivot.add(new THREE.Mesh(wg.brakeGeo, M.brake));
       root.add(pivot);
       wheels.push({ pivot, spin, front, side: sx, z });
@@ -1009,13 +1015,14 @@ export function buildCarModel(def, color, opts = {}) {
   root.add(sh);
 
   return {
-    root, body, wheels, paint, tail: tailMat, exhausts: D.exhausts,
+    root, body, wheels, paint, tail: tailMat, exhausts: D.exhausts, blurMat, glassMat: M.glass,
     dims: { L: P.L, W: P.W, wr: P.wr, fw: P.fw, rw: P.rw, roof: P.roofMax },
     dispose() {
       map.dispose();
       paint.dispose();
       plainPaint.dispose();
       tailMat.dispose();
+      blurMat.dispose();
       sh.geometry.dispose();
       sh.material.dispose();
     },
@@ -1036,4 +1043,48 @@ function blobShadowTexture() {
   shadowTex = canvasTexture(c, { repeat: false, srgb: false });
   shadowTex.userData.shared = true;
   return shadowTex;
+}
+
+// feine Normal-Störung für Metallic-Flakes unter dem Klarlack
+let flakeTex = null;
+function flakeTexture() {
+  if (flakeTex) return flakeTex;
+  const S = 128;
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  for (let i = 0; i < S * S; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.random() * 0.6;
+    img.data[i * 4] = 128 + Math.cos(a) * r * 127;
+    img.data[i * 4 + 1] = 128 + Math.sin(a) * r * 127;
+    img.data[i * 4 + 2] = 255;
+    img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  flakeTex = canvasTexture(c, { srgb: false });
+  flakeTex.repeat.set(48, 24);
+  flakeTex.userData.shared = true;
+  return flakeTex;
+}
+
+// radial verwischte Felge (für hohe Raddrehzahl)
+let blurTex = null;
+function wheelBlurTexture() {
+  if (blurTex) return blurTex;
+  const S = 128;
+  const c = makeCanvas(S, S);
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 6, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(230,230,235,0.95)');
+  grd.addColorStop(0.25, 'rgba(120,120,128,0.85)');
+  grd.addColorStop(0.7, 'rgba(200,200,206,0.7)');
+  grd.addColorStop(0.92, 'rgba(90,90,96,0.8)');
+  grd.addColorStop(1, 'rgba(90,90,96,0)');
+  g.fillStyle = grd;
+  g.beginPath();
+  g.arc(64, 64, 64, 0, Math.PI * 2);
+  g.fill();
+  blurTex = canvasTexture(c, { repeat: false });
+  blurTex.userData.shared = true;
+  return blurTex;
 }

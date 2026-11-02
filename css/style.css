@@ -300,3 +300,11 @@ td.pts { font-weight: 800; color: var(--gold); text-align: right; }
   .lobby-foot { flex-wrap: wrap; }
 }
 .lobby-settings button:disabled { opacity: 0.55; cursor: default; }
+
+.note.small { font-size: 13px; margin-top: 6px; max-width: 560px; }
+.lobby-head { display: flex; align-items: center; gap: 12px; }
+.via-pill { font-size: 13px; font-weight: 800; padding: 6px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); }
+.plist li .tag.via { background: rgba(46, 230, 255, 0.18); }
+.plist li .tag.via.relay { background: rgba(255, 211, 77, 0.22); }
+.traffic { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(46, 230, 255, 0.08); border: 1px solid rgba(46, 230, 255, 0.3); font-size: 14px; }
+.traffic table { font-size: 13px; margin-top: 6px; }

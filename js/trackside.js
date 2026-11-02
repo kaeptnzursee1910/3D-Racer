@@ -125,12 +125,15 @@ export function buildTrackside(env) {
   const q = env.q;
   const root = new THREE.Group();
   env.root.add(root);
-  const ctx = { env, tr, th, q, root, used: [], features: [] };
+  const ctx = { env, tr, th, q, root, used: [], features: [], covers: [] };
   tireBarriers(ctx);
   gravelTraps(ctx);
+  rubberLine(ctx);
   if (th !== 'city') catchFences(ctx);
   distanceBoards(ctx);
   pitComplex(ctx);
+  brakeMarks(ctx);
+  shrubs(ctx);
   cornerGrandstands(ctx);
   if (th === 'coast') { tunnel(ctx, 'rock'); harbor(ctx); sponsorBridge(ctx); }
   if (th === 'canyon') { rockArches(ctx); powerPoles(ctx); sponsorBridge(ctx); }
@@ -476,6 +479,7 @@ function tunnel(ctx, kind) {
   env.addGlowPoints(glow, night ? '#ffc070' : '#c8b490', night ? 9 : 3);
   ctx.tunnel = { i0: s.i0, count: s.count };
   ctx.features.push(['tunnel', s.i0]);
+  ctx.covers.push(['tunnel', s.i0, s.count]);
 }
 
 // --- Lawinengalerie ----------------------------------------------------------------
@@ -511,6 +515,7 @@ function gallery(ctx) {
   }
   env.addGlowPoints(glow, '#fff0c8', 2.2);
   ctx.features.push(['galerie', s.i0]);
+  ctx.covers.push(['galerie', s.i0, s.count]);
 }
 
 // --- Felsbögen im Canyon -------------------------------------------------------------
@@ -748,4 +753,94 @@ function grass(ctx) {
     list.push({ x, y: y - 0.05, z, ry: r() * 3, s, color: '#ffffff' });
   });
   env.instanced(geo, new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide, transparent: false }), list, { shadow: false });
+}
+
+// --- Gummiabrieb entlang der Ideallinie ------------------------------------------------
+function rubberTexture() {
+  const c = makeCanvas(64, 64);
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 64, 0);
+  grd.addColorStop(0, 'rgba(0,0,0,0)');
+  grd.addColorStop(0.3, 'rgba(0,0,0,0.8)');
+  grd.addColorStop(0.5, 'rgba(0,0,0,0.55)');
+  grd.addColorStop(0.7, 'rgba(0,0,0,0.8)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  const r = rng(17);
+  for (let i = 0; i < 200; i++) {
+    g.fillStyle = `rgba(0,0,0,${r() * 0.3})`;
+    g.fillRect(r() * 64, r() * 64, 1, 2 + r() * 8);
+  }
+  return canvasTexture(c);
+}
+
+function rubberLine(ctx) {
+  const { tr } = ctx;
+  const N = tr.N;
+  const pos = [], uv = [], idx = [];
+  for (let j = 0; j <= N; j++) {
+    const i = j % N;
+    const o = tr.line[i];
+    for (const s of [0, 1]) {
+      const lat = o + (s ? 1.6 : -1.6);
+      pos.push(tr.cx[i] + tr.rx[i] * lat, tr.cy[i] + lat * tr.bank[i] + 0.012, tr.cz[i] + tr.rz[i] * lat);
+      uv.push(s, (j * tr.ds) / 10);
+    }
+  }
+  for (let j = 0; j < N; j++) {
+    const a = j * 2;
+    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: rubberTexture(), transparent: true, opacity: ctx.th === 'alps' ? 0.35 : 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, fog: true }));
+  m.renderOrder = 1;
+  ctx.root.add(m);
+}
+
+// --- Bremsspuren vor den großen Bremszonen ------------------------------------------------
+function brakeMarks(ctx) {
+  const { tr } = ctx;
+  const zones = ctx.zones || [];
+  const geos = [];
+  const r = rng(23);
+  for (const z of zones) {
+    for (let k = 0; k < 3; k++) {
+      const len = Math.round((20 + r() * 40) / tr.ds);
+      const i0 = (z.apex - Math.round((25 + r() * 70) / tr.ds) + tr.N) % tr.N;
+      const o = tr.line[i0] + (r() - 0.5) * 3;
+      for (const w of [-0.8, 0.8]) {
+        geos.push({ geo: tr.sweep(i0, len, [[o + w - 0.13, 0.016], [o + w + 0.13, 0.016]], { uScale: 1, vScale: len * tr.ds }) });
+      }
+    }
+  }
+  if (!geos.length) return;
+  const c = makeCanvas(8, 64);
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 64);
+  grd.addColorStop(0, 'rgba(0,0,0,0)');
+  grd.addColorStop(0.2, 'rgba(0,0,0,0.75)');
+  grd.addColorStop(1, 'rgba(0,0,0,0.25)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 8, 64);
+  const m = new THREE.Mesh(mergeGeometries(geos), new THREE.MeshBasicMaterial({ map: canvasTexture(c, { repeat: false }), transparent: true, opacity: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, fog: true }));
+  m.renderOrder = 1;
+  ctx.root.add(m);
+}
+
+// --- niedriges Buschwerk am Streckenrand ------------------------------------------------
+function shrubs(ctx) {
+  const { env, th, tr } = ctx;
+  if (th === 'city') return;
+  const col = { coast: ['#4f7a2f', '#6b8f3a', '#3f6a2a'], canyon: ['#8a7a45', '#7a6a3a', '#9a8550'], alps: ['#e8eef5', '#dfe7f0', '#3f5a3a'] }[th];
+  const list = [];
+  env.scatter(Math.round((ctx.q.level >= 2 ? 900 : 450) * ctx.q.sceneryMul), tr.wallDist + 1.5, 26, 71, (x, y, z, d, r) => {
+    if (th === 'coast' && y < 1) return false;
+    list.push({ x, y: y + 0.05, z, ry: r() * 6, sx: 0.6 + r() * 1.1, sy: 0.35 + r() * 0.5, sz: 0.6 + r() * 1.1, color: col[Math.floor(r() * col.length)] });
+  });
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  env.instanced(geo, new THREE.MeshLambertMaterial({ flatShading: true }), list, { shadow: false });
 }

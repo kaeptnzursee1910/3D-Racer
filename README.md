@@ -14,12 +14,12 @@ Alles wird prozedural erzeugt: Strecken, Landschaften, Fahrzeuge, Texturen, Soun
   - *Alpen-Ring* – verschneiter Hochgebirgskurs mit Lawinengalerie, Skilift, Leitpfosten, Schneefall und weniger Grip
   - überall: Boxengasse mit Garagen und Kontrollturm, Tribünen, Reifenstapel (mit Kollision), Kiesbetten, Fangzäune, Bremspunkt-Tafeln, Sponsorbrücke
 - **8 Fahrzeuge** mit eigener Optik und eigenen Werten (Spitze, Beschleunigung, Handling, Gewicht, Geländetauglichkeit): GT, Supersportwagen, Hot Hatch, Muscle-Car, Roadster, Rallye-Geländewagen, Elektro-Hypercar und Le-Mans-Prototyp (Freischaltung durch Meisterschaftssieg). Gerundete Karosserien mit Radhäusern, Glaskabine mit sichtbarem Fahrer, Felgen mit Bremsscheiben und -sätteln, eigene Licht-, Spoiler- und Auspuffvarianten, 14 Lackfarben und 5 Lackierungsstile mit Startnummern
-- **Arcade-Fahrphysik**: Gewichtsverlagerung, Grip-Limit, Drifts/Powerslides, Nitro (lädt sich durch Driften auf), Steigungen, Fahrbahnneigung in Kurven, Mauer- und Fahrzeugkollisionen
+- **Fahrphysik im Stil von Need for Speed**: dynamisches Fahrzeugmodell mit Reifen-Schräglauf, Reibkreis, Gewichtsverlagerung, Abtrieb und Heck-/Front-/Allradantrieb je Auto; einstellbare Fahrhilfe (Aus/Mittel/Stark: Gegenlenkhilfe, Stabilität, Traktions- und Bremskontrolle); kontrollierbare Drifts (Handbremse oder kurz anbremsen), Nitro lädt sich beim Driften auf; Seitenstreifen kostet nur wenig Tempo
 - **KI-Gegner**, die einer berechneten Ideallinie folgen, bremsen, überholen, ausweichen, Nitro nutzen und kleine Fehler machen; drei Schwierigkeitsgrade
 - **Spielmodi**: Schnelles Rennen (1–9 Runden, 0–7 Gegner), **Meisterschaft** über alle 4 Strecken mit Punktewertung, **Zeitfahren** gegen den eigenen **Geist**
 - Startampel mit Raketenstart, Rundenzeiten, Bestzeiten, Delta zum Geist, Live-Rangliste, Minikarte, Tacho mit Drehzahl/Gang/Nitro
 - 3 Kameraperspektiven (Verfolger, weit, Motorhaube), Intro-Kameraflug, TV-Kamera im Ziel und im Menü-Hintergrund
-- Effekte: HDR-Rendering mit Bloom und Kantenglättung, Echtzeit-Schatten, Klarlack-Spiegelungen, Asphaltstruktur (nachts nass glänzend), Reifenqualm, Bremsspuren, Funkenflug, Nitro-Flammen, Geschwindigkeitslinien
+- Effekte: HDR-Rendering mit Bloom und Kantenglättung, Echtzeit-Spiegelungen der Umgebung im Lack, Metallic-Flakes unter Klarlack, Rad-Bewegungsunschärfe, Blendenflecke der Sonne, Gummiabrieb auf der Ideallinie und Bremsspuren, detaillierter Asphalt mit Rissen und Flicken, Echtzeit-Schatten, Asphaltstruktur (nachts nass glänzend), Reifenqualm, Bremsspuren, Funkenflug, Nitro-Flammen, Geschwindigkeitslinien
 - **Sound komplett synthetisiert** (WebAudio): Motor mit Gangwechseln, Reifenquietschen, Wind, Crashs, Nitro – plus prozedurale Synthwave-Musik je Strecke
 - Rekorde, Geister und Einstellungen werden lokal gespeichert
 - Grafikqualität *Auto/Niedrig/Mittel/Hoch* mit automatischer Auflösungsanpassung für flüssige Bildraten
@@ -70,16 +70,28 @@ Die Verbindung funktioniert genauso wie bei *Horizon Rush*: Die Geräte verbinde
 
 In Netzwerken, die direkte Verbindungen blockieren (Firmen-/Hochschul-WLAN), läuft die Verbindung über einen Verbindungsserver (TURN, metered.ca). Die Zugangsdaten trägt man unter *Mehrspieler → Verbindungseinstellungen* ein; sie stehen nicht im Code, werden nur im Browser gespeichert und reisen im Einladungslink im Teil nach `#` mit (wird nie an einen Server geschickt).
 
+### Verbindungsweg
+
+Unter *Mehrspieler → Verbindungsweg* legt man fest, wie die Geräte verbunden werden:
+
+- **Direkt (P2P)** – nur direkte Verbindungen, der Rennverkehr läuft nie über einen Server (spart dessen Kontingent). Funktioniert nicht in Netzen, die direkte Verbindungen sperren.
+- **Automatisch** – direkt, wenn möglich; sonst über den Verbindungsserver (Standard).
+- **Über Server** – der gesamte Verkehr läuft über den TURN-Verbindungsserver (braucht Zugangsdaten, funktioniert auch in gesperrten Netzen).
+
+Der Gastgeber gibt seine Wahl im Einladungslink weiter. In der Lobby steht bei jedem Mitspieler, welcher Weg tatsächlich genutzt wird (⇄ Direkt / ☁ Server).
+
 ### Datenverkehr (gemessen)
 
-Gemessen mit zwei Browsern bei 20 Zustandspaketen pro Sekunde, 8 Autos im Feld, inklusive WebRTC-Overhead (DTLS/SCTP/UDP/IP):
+Nach jedem Online-Rennen zeigt der Ergebnisbildschirm den gemessenen Datenverkehr des eigenen Geräts – gesamt und **pro Runde** (aus den WebRTC-Statistiken, inklusive DTLS/SCTP/UDP/IP-Overhead).
 
-| | Gast | Gastgeber, je Gast |
+Messung mit zwei Browsern, 8 Autos im Feld, 20 Pakete pro Sekunde, 4-km-Runden (ca. 100 s):
+
+| | pro Runde | Rate |
 |---|---|---|
-| Empfangen | ≈ 8,5 KB/s (≈ 68 kbit/s) | ≈ 2,7 KB/s |
-| Senden | ≈ 2,7 KB/s (≈ 21 kbit/s) | ≈ 8,5 KB/s |
+| Gast (Senden + Empfangen) | ≈ 1,0–1,2 MB | ≈ 90 kbit/s |
+| Gastgeber, je Gast | ≈ 1,0 MB | ≈ 90 kbit/s |
 
-Ein Gast braucht also unabhängig von der Spielerzahl rund **3–4 MB pro Rennen** (3 Runden, ca. 5 Minuten). Beim Gastgeber wächst der Upload mit jedem Gast: bei 8 Spielern etwa 60 KB/s hoch und 19 KB/s runter (≈ 0,5 Mbit/s bzw. ≈ 25 MB pro Rennen). In der Lobby fließen nur wenige Hundert Byte pro Sekunde. Das Spiel selbst wird einmalig geladen (≈ 350 KB komprimiert) und danach aus dem Offline-Speicher gestartet.
+Ein Gast braucht also unabhängig von der Spielerzahl rund **1,1 MB pro Runde** (≈ 3,3 MB für ein Rennen über 3 Runden). Der Gastgeber braucht pro Gast ebenso viel – bei 8 Spielern also rund 7 MB pro Runde (Upload ≈ 0,5 Mbit/s). Läuft die Verbindung **über den Server**, fließt dieser Verkehr komplett durch den TURN-Server; bei **Direkt** fließt dort gar nichts. In der Lobby fließen nur wenige Hundert Byte pro Sekunde, das Spiel selbst wird einmalig geladen (≈ 400 KB komprimiert).
 
 ## Projektstruktur
 

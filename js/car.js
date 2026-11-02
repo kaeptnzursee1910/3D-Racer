@@ -438,6 +438,7 @@ export class Car {
       w.spin.rotation.x = this.wheelSpin;
       if (w.front) w.pivot.rotation.y = -this.steer * 0.5;
     }
+    if (this.model.blurMat) this.model.blurMat.opacity = clamp((Math.abs(this.speed) - 12) / 25, 0, 0.88);
     const brakeOn = this.braking || (this.input.brake > 0 && this.speed > 0.5);
     this.model.tail.emissiveIntensity = brakeOn ? 2.4 : 0.6;
     if (this.tailGlow) for (const s of this.tailGlow) s.scale.setScalar(brakeOn ? 1.8 : 1.0);

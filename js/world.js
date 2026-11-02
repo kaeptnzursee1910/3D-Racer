@@ -122,6 +122,15 @@ export class World {
       }
     }
 
+    // Echtzeit-Spiegelungen der Umgebung im Lack (Würfelkamera am fokussierten Auto)
+    if (q.reflect && this.cfg.mode !== 'attract') {
+      this.cubeRT = new THREE.WebGLCubeRenderTarget(q.reflect[0], { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+      this.cubeCam = new THREE.CubeCamera(1.2, 2600, this.cubeRT);
+      this.cubeEvery = q.reflect[1];
+      this.cubeTick = 0;
+      for (const c of this.cars) c.model.paint.envMap = this.cubeRT.texture;
+    }
+
     // Effekte
     this.smoke = new ParticleSystem(this.scene, q.level === 0 ? 300 : 700, false);
     this.fx = new ParticleSystem(this.scene, q.level === 0 ? 250 : 500, true);
@@ -248,6 +257,7 @@ export class World {
 
     // Visuelles
     for (const c of this.cars) c.updateVisual(dt);
+    this.updateReflections();
     this.updateGhost();
     this.updateEffects(dt);
     this.updateCamera(dt);
@@ -271,6 +281,23 @@ export class World {
 
     if (this.player && this.phase !== 'intro' && this.phase !== 'wait') hud.update(dt, this);
     if (this.online && this.game.mp) this.game.mp.tick(dt, this);
+  }
+
+  updateReflections() {
+    if (!this.cubeCam || !this.focus) return;
+    if (this.cubeTick-- > 0) return;
+    this.cubeTick = this.cubeEvery;
+    const f = this.focus;
+    this.cubeCam.position.set(f.x, f.y + 0.9, f.z);
+    f.mesh.visible = false;
+    const sky = this.env.sky;
+    const oldSky = sky.position.clone();
+    sky.position.copy(this.cubeCam.position);
+    this.smoke.points.visible = this.fx.points.visible = false;
+    this.cubeCam.update(this.game.renderer, this.scene);
+    this.smoke.points.visible = this.fx.points.visible = true;
+    sky.position.copy(oldSky);
+    f.mesh.visible = true;
   }
 
   setPhase(p) {
@@ -418,6 +445,7 @@ export class World {
     const hud = this.game.hud;
     const st = this.game.storage;
     const def = this.track.def;
+    if (this.online && this.game.mp) this.game.mp.lapDone();
     const isRecord = st.submitLap(def.id, lt, this.player.def.id);
     if (isRecord) this.recordLap = lt;
     // Geist speichern
@@ -661,6 +689,7 @@ export class World {
   }
 
   dispose() {
+    if (this.cubeRT) this.cubeRT.dispose();
     this.env.dispose();
     this.scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose();

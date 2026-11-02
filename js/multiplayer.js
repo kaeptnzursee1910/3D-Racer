@@ -36,6 +36,13 @@ export class Multiplayer {
     $('#mp-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.act('mp-join'); });
     $('#chat-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.act('chat-send'); });
     $('#mp-code').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4); });
+    $('#conn-mode').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      Net.setMode(b.dataset.v);
+      this.renderMode();
+      this.game.audio.click();
+    });
   }
 
   act(a, el) {
@@ -84,9 +91,21 @@ export class Multiplayer {
     }
   }
 
+  renderMode() {
+    const m = Net.getMode();
+    $('#conn-mode').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === m));
+    const key = !!Net.getKey();
+    $('#conn-mode-note').textContent = {
+      direct: 'Die Geräte verbinden sich direkt miteinander. Der Rennverkehr läuft nie über einen Server (spart dessen Kontingent). In Netzen, die direkte Verbindungen sperren, klappt das nicht.',
+      auto: 'Direkt, wenn möglich – nur wenn das Netz es verhindert, läuft die Verbindung über den Verbindungsserver' + (key ? '.' : ' (dafür Zugangsdaten eintragen).'),
+      relay: 'Der gesamte Verkehr läuft über den Verbindungsserver (TURN). Funktioniert auch in gesperrten Netzen, verbraucht aber Server-Kontingent.' + (key ? '' : ' Zugangsdaten erforderlich!'),
+    }[m];
+  }
+
   showStart(invite) {
     const g = this.game;
     g.show('mp');
+    this.renderMode();
     const name = g.storage.settings.playerName;
     $('#mp-name').value = name && name !== 'Du' ? name : '';
     $('#mp-code').value = invite || '';
@@ -131,6 +150,7 @@ export class Multiplayer {
   // Party eröffnen / beitreten / verlassen
   create() {
     this.readName();
+    if (Net.modeProblem()) return this.error(Net.modeProblem());
     this.game.toast('Party wird eröffnet …');
     Net.host((err, code) => {
       if (err) return this.error(err);
@@ -141,6 +161,7 @@ export class Multiplayer {
         players: [{ id: 0, ...this.profile(), ready: true, ping: 0 }],
         settings: { track: sel.track || 'coast', laps: 3, ai: true, difficulty: sel.difficulty || 'normal' },
         racing: false,
+        via: Net.getMode(),
       };
       this.sys('Party eröffnet. Teile den Code ' + code + ' oder den Einladungslink.');
       this.enterLobby();
@@ -149,6 +170,7 @@ export class Multiplayer {
 
   join(code) {
     this.readName();
+    if (Net.modeProblem()) return this.error(Net.modeProblem());
     $('#mp-err').hidden = true;
     this.game.toast('Verbinde mit Party ' + code + ' …', 4000);
     Net.join(code, (err) => {
@@ -177,7 +199,7 @@ export class Multiplayer {
   invite() {
     if (!this.lobby) return;
     const k = Net.getKey();
-    const url = location.origin + location.pathname + '?party=' + this.lobby.code +
+    const url = location.origin + location.pathname + '?party=' + this.lobby.code + '&via=' + (this.lobby.via || Net.getMode()) +
       (k && k.user && k.pass ? '#k=' + btoa(unescape(encodeURIComponent(JSON.stringify([k.user, k.pass])))).replace(/=+$/, '') : '');
     const text = 'Fahr mit mir bei VELOX! Party-Code ' + this.lobby.code;
     if (navigator.share) { navigator.share({ title: 'VELOX', text, url }).catch(() => {}); return; }
@@ -188,7 +210,10 @@ export class Multiplayer {
 
   // Einladungslink beim Start auswerten (?party=1234#k=...)
   static parseInvite(storeKey) {
-    const inv = (new URLSearchParams(location.search).get('party') || '').replace(/\D/g, '').slice(0, 4);
+    const qs = new URLSearchParams(location.search);
+    const inv = (qs.get('party') || '').replace(/\D/g, '').slice(0, 4);
+    const via = qs.get('via');
+    if (inv.length === 4 && ['direct', 'auto', 'relay'].includes(via)) Net.setMode(via);
     const km = /[#&]k=([A-Za-z0-9+/]+)/.exec(location.hash);
     if (km) {
       try {
@@ -480,6 +505,7 @@ export class Multiplayer {
       if (this.pingT <= 0) {
         this.pingT = 2;
         Net.broadcast({ t: 'ping', ts: Math.round(performance.now()) });
+        this.measureVia();
       }
     }
     if (world.phase === 'wait' || world.phase === 'intro') return;
@@ -506,6 +532,51 @@ export class Multiplayer {
     } else if (world.player) {
       Net.send({ t: 'st', c: world.player.packState(world.player.netIdx) });
     }
+  }
+
+  // tatsächlichen Verbindungsweg je Gast ermitteln (Gastgeber)
+  async measureVia() {
+    const L = this.lobby;
+    if (!L || !this.isHost) return;
+    let changed = false;
+    for (const [id, conn] of Net.conns) {
+      const t = await Net.connType(conn);
+      const p = L.players.find((x) => x.id === id);
+      if (p && t && p.via !== t) { p.via = t; changed = true; }
+    }
+    if (changed && !this.inRace) this.pushLobby();
+  }
+
+  // ----- Datenverkehr pro Runde -----------------------------------------------
+  async trafficSnap() {
+    const t = await Net.transportStats();
+    return { t: performance.now(), wire: t.sent + t.recv, sent: t.sent, recv: t.recv, payload: Net.stats.sent + Net.stats.recv };
+  }
+  async raceStarted() {
+    this.traffic = { start: await this.trafficSnap(), laps: [] };
+  }
+  async lapDone() {
+    if (!this.traffic) return;
+    this.traffic.laps.push(await this.trafficSnap());
+  }
+  async renderTraffic(el) {
+    if (!this.traffic || !el) return;
+    const end = await this.trafficSnap();
+    const s = this.traffic.start;
+    const kb = (b) => (b / 1024).toFixed(0) + ' KB';
+    const pts = [s, ...this.traffic.laps];
+    const rows = [];
+    for (let i = 1; i < pts.length; i++) {
+      const d = pts[i].wire - pts[i - 1].wire, sec = (pts[i].t - pts[i - 1].t) / 1000;
+      rows.push(`<tr><td>Runde ${i}</td><td>${kb(d)}</td><td>${((d * 8) / sec / 1000).toFixed(0)} kbit/s</td></tr>`);
+    }
+    const total = end.wire - s.wire, secs = (end.t - s.t) / 1000;
+    const laps = Math.max(1, this.traffic.laps.length);
+    const viaTxt = this.isHost
+      ? `Gastgeber · ${Net.conns.size} Verbindung${Net.conns.size === 1 ? '' : 'en'}`
+      : (await Net.connType(Net.hostConn)) === 'relay' ? 'über Server (TURN)' : 'direkt (P2P)';
+    el.innerHTML = `<b>Datenverkehr dieses Geräts</b> (${viaTxt}): gesamt ${kb(total)} in ${secs.toFixed(0)} s · Ø ${kb(this.traffic.laps.length ? (this.traffic.laps[this.traffic.laps.length - 1].wire - s.wire) / laps : total)} pro Runde
+      <table><tr><th>Runde</th><th>Daten</th><th>Rate</th></tr>${rows.join('')}</table>`;
   }
 
   checkEnd(world) {
@@ -563,6 +634,7 @@ export class Multiplayer {
     if (!L) return;
     const host = this.isHost;
     $('#lobby-code').textContent = L.code || '----';
+    $('#lobby-via').textContent = 'Weg: ' + ({ direct: 'Direkt (P2P)', auto: 'Automatisch', relay: 'Über Server' }[L.via || Net.getMode()] || '–');
     const S = L.settings || {};
     const humans = L.players || [];
     const nAI = S.ai ? Math.max(0, 8 - humans.length) : 0;
@@ -571,7 +643,8 @@ export class Multiplayer {
       const car = getCarDef(p.car);
       const tag = p.id === 0 ? '<span class="tag host">Gastgeber</span>' : p.ready ? '<span class="tag ok">Bereit</span>' : '<span class="tag">Wartet</span>';
       const ping = p.id !== 0 && p.ping ? `<small>${p.ping} ms</small>` : '';
-      return `<li class="${p.id === this.myId ? 'me' : ''}"><span class="dot" style="background:${esc(p.color)}"></span><b>${esc(p.name)}</b><small>${esc(car.name)}</small>${ping}${tag}</li>`;
+      const via = p.id !== 0 && p.via ? `<span class="tag via ${p.via}">${p.via === 'relay' ? '☁ Server' : '⇄ Direkt'}</span>` : '';
+      return `<li class="${p.id === this.myId ? 'me' : ''}"><span class="dot" style="background:${esc(p.color)}"></span><b>${esc(p.name)}</b><small>${esc(car.name)}</small>${ping}${via}${tag}</li>`;
     });
     if (nAI) rows.push(`<li class="ai"><span class="dot" style="background:#666"></span><b>${nAI} Computergegner</b><small>${esc((DIFFICULTY[S.difficulty] || DIFFICULTY.normal).name)}</small></li>`);
     $('#lobby-players').innerHTML = rows.join('');

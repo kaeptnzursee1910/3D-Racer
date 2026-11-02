@@ -20,6 +20,15 @@ export const Net = {
   stats: { sent: 0, recv: 0, msgSent: 0, msgRecv: 0, since: performance.now() },
 
   KEY_STORE: 'velox_online_key',
+  MODE_STORE: 'velox_conn_mode',
+  // Verbindungsweg: 'direct' = nur direkt (spart Server-Verkehr), 'auto' = direkt mit Server als Ausweichweg,
+  // 'relay' = immer über den Verbindungsserver (TURN)
+  getMode() {
+    try { return localStorage.getItem(this.MODE_STORE) || 'auto'; } catch (_) { return 'auto'; }
+  },
+  setMode(m) {
+    try { localStorage.setItem(this.MODE_STORE, m); } catch (_) { /* */ }
+  },
   getKey() {
     try { return JSON.parse(localStorage.getItem(this.KEY_STORE) || 'null'); } catch (_) { return null; }
   },
@@ -31,9 +40,10 @@ export const Net = {
   },
 
   iceServers() {
-    const ice = [{ urls: 'stun:stun.relay.metered.ca:80' }, { urls: 'stun:stun.l.google.com:19302' }];
+    const mode = this.getMode();
+    const ice = mode === 'relay' ? [] : [{ urls: 'stun:stun.relay.metered.ca:80' }, { urls: 'stun:stun.l.google.com:19302' }];
     const k = this.getKey();
-    if (k) {
+    if (k && mode !== 'direct') {
       for (const u of ['turn:global.relay.metered.ca:80', 'turn:global.relay.metered.ca:80?transport=tcp',
         'turn:global.relay.metered.ca:443', 'turns:global.relay.metered.ca:443?transport=tcp']) {
         ice.push({ urls: u, username: k.user, credential: k.pass });
@@ -45,7 +55,8 @@ export const Net = {
   available() { return typeof window.Peer === 'function'; },
 
   makePeer(id) {
-    const opts = Object.assign({ debug: 0, config: { iceServers: this.iceServers() } }, window.VELOX_PEER_SERVER || {});
+    const relay = this.getMode() === 'relay';
+    const opts = Object.assign({ debug: 0, config: { iceServers: this.iceServers(), iceTransportPolicy: relay ? 'relay' : 'all' } }, window.VELOX_PEER_SERVER || {});
     return id ? new window.Peer(id, opts) : new window.Peer(opts);
   },
 
@@ -123,7 +134,7 @@ export const Net = {
     const p = this.makePeer();
     let done = false;
     const fail = (msg) => { if (done) return; done = true; cb(msg); this.close(); };
-    const timer = setTimeout(() => fail('Keine Verbindung zum Gastgeber. Bitte den Code prüfen und es erneut versuchen.'), 20000);
+    const timer = setTimeout(() => fail('Keine Verbindung zum Gastgeber. Bitte den Code prüfen und es erneut versuchen.'), 30000);
     p.on('open', () => {
       this.peer = p;
       const conn = p.connect(this.prefix + code, { reliable: true, serialization: 'json' });
@@ -193,6 +204,27 @@ export const Net = {
   sendTo(id, msg) { this.sendRaw(this.conns.get(id), msg); },
 
   active() { return !!this.peer && (this.isHost || !!this.hostConn); },
+
+  // Prüfen, ob der gewählte Weg möglich ist
+  modeProblem() {
+    if (this.getMode() === 'relay' && !this.getKey()) return 'Für „Über Server“ werden Zugangsdaten für den Verbindungsserver benötigt (Verbindungseinstellungen).';
+    return null;
+  },
+
+  // tatsächlich genutzter Weg einer Verbindung: 'direct' oder 'relay'
+  async connType(conn) {
+    const pc = conn && conn.peerConnection;
+    if (!pc) return null;
+    try {
+      const st = await pc.getStats();
+      let pair = null;
+      st.forEach((r) => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = st.get(r.selectedCandidatePairId); });
+      if (!pair) st.forEach((r) => { if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r; });
+      if (!pair) return null;
+      const l = st.get(pair.localCandidateId), rm = st.get(pair.remoteCandidateId);
+      return (l && l.candidateType === 'relay') || (rm && rm.candidateType === 'relay') ? 'relay' : 'direct';
+    } catch (_) { return null; }
+  },
 
   // tatsächlicher Verkehr inkl. WebRTC-Overhead (SCTP/DTLS/UDP/IP) über getStats
   async transportStats() {

@@ -207,6 +207,7 @@ export class Environment {
     }
     this.root.add(this.sun);
     this.root.add(this.sun.target);
+    if (!this.theme.night) this.buildFlare();
   }
 
   buildEnvMap() {
@@ -244,7 +245,7 @@ export class Environment {
   // ---------------------------------------------------------------------
   buildTrackMeshes() {
     const th = this.theme;
-    const roadTex = TX.roadTexture({ asphalt: th.asphalt, centerLine: this.themeId === 'city' ? '#ffd34d' : '#efefef' }, this.aniso);
+    const roadTex = TX.roadTexture({ asphalt: th.asphalt, centerLine: this.themeId === 'city' ? '#ffd34d' : '#efefef' }, this.aniso, this.q.level >= 2);
     const shoulderTex = TX.groundTexture({ ground: th.shoulder, groundVar: th.groundVar }, this.aniso, 21);
     const wallTex = TX.wallTexture(th.wall, this.aniso);
     const StdMat = this.q.level === 0 ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial;
@@ -948,6 +949,68 @@ export class Environment {
     return canvasTexture(c, { repeat: false });
   }
 
+  // ----- Blendenflecke der Sonne ---------------------------------------------
+  buildFlare() {
+    const tex = softParticleTexture();
+    const ring = (() => {
+      const c = makeCanvas(128, 128);
+      const g = c.getContext('2d');
+      const grd = g.createRadialGradient(64, 64, 40, 64, 64, 62);
+      grd.addColorStop(0, 'rgba(255,255,255,0)');
+      grd.addColorStop(0.6, 'rgba(255,255,255,0.35)');
+      grd.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grd;
+      g.fillRect(0, 0, 128, 128);
+      return canvasTexture(c, { repeat: false });
+    })();
+    const sc = new THREE.Color(this.theme.sunColor);
+    const defs = [
+      [0, 3.2, tex, sc, 0.9], [0.25, 0.5, tex, new THREE.Color('#ffd2a0'), 0.25], [0.45, 0.9, ring, new THREE.Color('#9fd0ff'), 0.35],
+      [0.62, 0.35, tex, new THREE.Color('#a0ffb8'), 0.3], [0.8, 0.6, tex, new THREE.Color('#ffa0d8'), 0.22], [1.1, 1.4, ring, new THREE.Color('#ffe0a0'), 0.2],
+      [1.35, 0.4, tex, new THREE.Color('#8fb8ff'), 0.25],
+    ];
+    this.flares = defs.map(([t, size, map, color, alpha]) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, fog: false }));
+      s.userData = { t, size, alpha };
+      s.renderOrder = 50;
+      s.frustumCulled = false;
+      this.root.add(s);
+      return s;
+    });
+    this._fv = new THREE.Vector3();
+    this._fv2 = new THREE.Vector3();
+    this.flareVis = 0;
+  }
+
+  updateFlare(camera, focus) {
+    if (!this.flares) return;
+    const cp = camera.position;
+    const sp = this._fv.copy(this.sunDir).multiplyScalar(1000).add(cp).project(camera);
+    let vis = sp.z < 1 && Math.abs(sp.x) < 1.25 && Math.abs(sp.y) < 1.25 ? 1 : 0;
+    // Verdeckung durch Gelände entlang des Strahls zur Sonne
+    if (vis) {
+      for (const d of [30, 80, 160, 320, 640]) {
+        const x = cp.x + this.sunDir.x * d, z = cp.z + this.sunDir.z * d, y = cp.y + this.sunDir.y * d;
+        if (this.heightAt(x, z) > y) { vis = 0; break; }
+      }
+    }
+    // überdachte Abschnitte (Tunnel, Galerie)
+    if (vis && focus && this.coveredAt && this.coveredAt(focus.proj && focus.proj.idx)) vis = 0;
+    this.flareVis += (vis * (1 - Math.min(1, Math.hypot(sp.x, sp.y) * 0.45)) - this.flareVis) * 0.15;
+    const fv = this.flareVis;
+    for (const s of this.flares) {
+      const { t, size, alpha } = s.userData;
+      s.visible = fv > 0.01;
+      if (!s.visible) continue;
+      // Position auf der Linie Sonne → Bildmitte → gegenüber, 10 m vor der Kamera
+      const nx = sp.x * (1 - 2 * t), ny = sp.y * (1 - 2 * t);
+      const dir = this._fv2.set(nx, ny, 0.5).unproject(camera).sub(cp).normalize();
+      s.position.copy(cp).addScaledVector(dir, 10);
+      s.scale.setScalar(size);
+      s.material.opacity = alpha * fv;
+    }
+  }
+
   softTex() {
     return softParticleTexture();
   }
@@ -960,6 +1023,8 @@ export class Environment {
       tr.pointAt(a, tr.wallDist + 18, p);
       this.blockers.push({ x: p.x, z: p.z, r: 20 });
     }
+    this.covered = [];
+    for (const [name, i0, cnt] of (this.trackside && this.trackside.covers) || []) this.covered.push([i0 - 3, i0 + cnt + 3]);
     const t = this.trackside && this.trackside.tunnel;
     if (t) {
       for (let j = -10; j <= t.count + 10; j += 6) {
@@ -967,6 +1032,11 @@ export class Environment {
         this.blockers.push({ x: p.x, z: p.z, r: tr.wallDist + 34 });
       }
     }
+  }
+  coveredAt(idx) {
+    if (idx == null) return false;
+    for (const [a, b] of this.covered || []) if (idx >= a && idx <= b) return true;
+    return false;
   }
   isBlocked(x, z) {
     for (const b of this.blockers) if ((x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return true;
@@ -1020,11 +1090,14 @@ export class Environment {
     this.sky.position.copy(camera.position);
     if (this.waterUniforms) this.waterUniforms.time.value = this.time;
     if (focus) {
-      const f = new THREE.Vector3(focus.x, focus.y, focus.z);
+      // Schattenausschnitt etwas vor das Auto legen (Blickrichtung)
+      const ahead = (this.q.shadowRange || 45) * 0.4;
+      const f = new THREE.Vector3(focus.x + Math.sin(focus.heading || 0) * ahead, focus.y, focus.z + Math.cos(focus.heading || 0) * ahead);
       this.sun.target.position.copy(f);
       this.sun.position.copy(f).addScaledVector(this.sunDir, 220);
       this.sun.target.updateMatrixWorld();
     }
+    this.updateFlare(camera, focus);
     if (this.weather) {
       const p = this.weather.geometry.attributes.position;
       const a = p.array;

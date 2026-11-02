@@ -22,8 +22,8 @@ function hexToRgb(hex) {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
-export function roadTexture(opts, aniso) {
-  const W = 512, H = 1024;
+export function roadTexture(opts, aniso, hi = false) {
+  const W = hi ? 1024 : 512, H = hi ? 2048 : 1024;
   const c = makeCanvas(W, H);
   const g = c.getContext('2d');
   noiseFill(g, W, H, hexToRgb(opts.asphalt), 26, 11);
@@ -35,6 +35,53 @@ export function roadTexture(opts, aniso) {
     g.beginPath();
     g.ellipse(x, y, 10 + r() * 50, 10 + r() * 80, r() * 3, 0, Math.PI * 2);
     g.fill();
+  }
+  const k = W / 512;
+  // heller Splitt
+  for (let i = 0; i < 9000 * k * k; i++) {
+    const v = 120 + r() * 90;
+    g.fillStyle = `rgba(${v},${v},${v + 5},${0.25 + r() * 0.35})`;
+    g.fillRect(r() * W, r() * H, k * (0.6 + r()), k * (0.6 + r()));
+  }
+  // Ausbesserungen mit Kanten
+  for (let i = 0; i < 5; i++) {
+    const x = (0.1 + r() * 0.6) * W, y = r() * H, w = (0.12 + r() * 0.25) * W, h = (0.05 + r() * 0.12) * H;
+    g.fillStyle = `rgba(${r() > 0.5 ? '0,0,0' : '255,255,255'},${0.05 + r() * 0.05})`;
+    g.fillRect(x, y, w, h);
+    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    g.lineWidth = 1.5 * k;
+    g.strokeRect(x, y, w, h);
+  }
+  // Risse
+  g.strokeStyle = 'rgba(10,10,12,0.32)';
+  for (let i = 0; i < 16; i++) {
+    let x = r() * W, y = r() * H;
+    g.lineWidth = (0.6 + r() * 1.2) * k;
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let s = 0; s < 6 + r() * 10; s++) {
+      x += (r() - 0.5) * 30 * k;
+      y += (r() - 0.3) * 26 * k;
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  // Querfuge
+  g.fillStyle = 'rgba(0,0,0,0.35)';
+  g.fillRect(0, H * 0.5, W, 2 * k);
+  // Ölflecken
+  for (let i = 0; i < 8; i++) {
+    const grd = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+    grd.addColorStop(0, 'rgba(0,0,0,0.3)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.save();
+    g.translate((0.25 + r() * 0.5) * W, r() * H);
+    g.scale((8 + r() * 20) * k, (14 + r() * 40) * k);
+    g.fillStyle = grd;
+    g.beginPath();
+    g.arc(0, 0, 1, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
   }
   // Fahrspur-Abrieb (dunklere Ideallinie)
   const grd = g.createLinearGradient(0, 0, W, 0);
@@ -49,6 +96,12 @@ export function roadTexture(opts, aniso) {
   g.fillStyle = opts.edgeLine || '#f2f2f2';
   g.fillRect(W * 0.025, 0, W * 0.022, H);
   g.fillRect(W * (1 - 0.047), 0, W * 0.022, H);
+  // abgefahrene Stellen in der Linienfarbe
+  for (let i = 0; i < 60; i++) {
+    g.fillStyle = `rgba(60,60,64,${0.2 + r() * 0.4})`;
+    const side = r() < 0.5 ? W * 0.025 : W * (1 - 0.047);
+    g.fillRect(side + r() * W * 0.022, r() * H, 1 + r() * 3 * k, 1 + r() * 6 * k);
+  }
   // Mittellinie gestrichelt
   g.fillStyle = opts.centerLine || '#f0f0f0';
   for (let y = 0; y < H; y += H / 2) g.fillRect(W * 0.494, y + H * 0.05, W * 0.012, H * 0.22);

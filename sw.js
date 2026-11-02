@@ -1,5 +1,5 @@
 // Service Worker: Netzwerk zuerst, bei fehlender Verbindung aus dem Cache (Offline-Spielen)
-const CACHE = 'velox-v3';
+const CACHE = 'velox-v4';
 const FILES = [
   './', './index.html', './css/style.css', './manifest.webmanifest',
   './vendor/three.module.min.js',

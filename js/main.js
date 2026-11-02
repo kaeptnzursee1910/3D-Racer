@@ -22,8 +22,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 const QUALITY = {
   low: { level: 0, bloom: false, pixelRatio: 1, shadows: false, shadowSize: 512, shadowRange: 40, terrainSeg: 110, sceneryMul: 0.45, physical: false },
-  medium: { level: 1, bloom: true, pixelRatio: 1.5, shadows: true, shadowSize: 1024, shadowRange: 45, terrainSeg: 150, sceneryMul: 0.75, physical: false },
-  high: { level: 2, bloom: true, pixelRatio: 2, shadows: true, shadowSize: 2048, shadowRange: 60, terrainSeg: 200, sceneryMul: 1, physical: true },
+  medium: { level: 1, bloom: true, reflect: [128, 8], pixelRatio: 1.5, shadows: true, shadowSize: 1024, shadowRange: 45, terrainSeg: 150, sceneryMul: 0.75, physical: false },
+  high: { level: 2, bloom: true, reflect: [256, 3], pixelRatio: 2, shadows: true, shadowSize: 2048, shadowRange: 60, terrainSeg: 200, sceneryMul: 1, physical: true },
 };
 
 class Game {
@@ -744,7 +744,9 @@ class Game {
   onCountdown() {
     this.input.calibrateTilt();
   }
-  onRaceStart() {}
+  onRaceStart() {
+    if (this.world && this.world.online) this.mp.raceStarted();
+  }
 
   onAction(a) {
     if (this.state !== 'race' || !this.world) return;
@@ -846,6 +848,10 @@ class Game {
       $('#results-body').innerHTML += extra;
       $('#results-next').textContent = cfg.mode === 'champ' ? (this.champ.finished ? 'Endstand ›' : 'Gesamtwertung ›') : cfg.mode === 'online' ? (this.mp.isHost ? 'Zur Lobby ›' : 'Party verlassen') : 'Menü';
       if (cfg.mode === 'online' && !this.mp.isHost) $('#results-body').innerHTML += '<div class="result-extra"><span>Der Gastgeber bringt alle zurück in die Lobby …</span></div>';
+      if (cfg.mode === 'online') {
+        $('#results-body').innerHTML += '<div class="traffic" id="traffic-info">Datenverkehr wird ermittelt …</div>';
+        this.mp.renderTraffic($('#traffic-info'));
+      }
     }
     $('#results-body').querySelectorAll('.result-extra').length || ($('#results-body').innerHTML += cfg.mode === 'trial' ? '' : '');
     this.show('results');

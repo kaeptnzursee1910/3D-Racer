@@ -150,7 +150,11 @@
           <label class="field"><span>Code einer Party</span><input type="text" id="mp-code" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" /></label>
           <button class="big-btn" data-act="mp-join">Beitreten</button>
         </div>
-        <p class="note"><button class="linkbtn" data-act="keyform">Verbindungseinstellungen</button></p>
+        <div class="opt"><label>Verbindungsweg</label>
+          <div class="seg" id="conn-mode"><button data-v="direct">Direkt (P2P)</button><button data-v="auto">Automatisch</button><button data-v="relay">Über Server</button></div>
+          <p class="note small" id="conn-mode-note"></p>
+        </div>
+        <p class="note"><button class="linkbtn" data-act="keyform">Verbindungseinstellungen (Server-Zugangsdaten)</button></p>
         <p class="error" id="mp-err" hidden></p>
       </div>
     </section>
@@ -168,7 +172,7 @@
 
     <!-- Mehrspieler: Lobby -->
     <section id="screen-lobby" class="screen hidden panel-screen">
-      <header><button class="back" data-act="mp-leave">‹ Verlassen</button><h2>Lobby</h2><div class="code-pill" id="lobby-code">----</div></header>
+      <header><button class="back" data-act="mp-leave">‹ Verlassen</button><h2>Lobby</h2><div class="lobby-head"><span class="via-pill" id="lobby-via"></span><div class="code-pill" id="lobby-code">----</div></div></header>
       <div class="lobby-grid">
         <div class="lobby-col">
           <h3 id="lobby-count">Spieler</h3>
