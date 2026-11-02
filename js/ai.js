@@ -1,6 +1,8 @@
 // KI-Fahrer: folgt der Ideallinie mit eigenem Geschwindigkeitsprofil
 import { clamp, wrapAngle, lerp, damp } from './utils.js';
 
+const G = 9.81;
+
 export const DIFFICULTY = {
   easy: { name: 'Leicht', skill: [0.8, 0.87], rubber: 0.09 },
   normal: { name: 'Normal', skill: [0.88, 0.94], rubber: 0.06 },
@@ -15,8 +17,12 @@ export class AIDriver {
     this.rand = rand;
     const d = car.def;
     // etwas unter dem Grip-Limit des Fahrzeugs bleiben
-    const aLat = 21 * d.grip * 0.9 * (0.9 + skill * 0.1) * (track.def.theme === 'alps' ? 0.93 : 1);
-    this.profile = track.speedProfile(aLat, d.brake * 0.62, d.maxSpeed * 1.1);
+    // passend zur Reifenphysik: Reibwert × (g + mittlerer Abtrieb), mit Sicherheitsreserve
+    const mu = 1.18 * d.grip * (track.def.theme === 'alps' ? 0.93 : 1);
+    const aLat = mu * G * (1 + 0.06 * (d.aero ?? 1)) * 0.9 * (0.9 + skill * 0.1);
+    const aBrake = Math.min(d.brake, mu * G * 1.1) * 0.72;
+    this.profile = track.speedProfile(aLat, aBrake, d.maxSpeed * 1.1);
+    car.assist = 0.85;
     this.laneBias = (rand() - 0.5) * 2.2;
     this.avoid = 0;
     this.avoidTarget = 0;
@@ -35,9 +41,14 @@ export class AIDriver {
 
     // Festgefahren → zurücksetzen / rückwärts
     if (c.stuckTime > 2.5) {
-      if (c.stuckTime > 5) c.resetToTrack();
-      else this.reverseTimer = 1.2;
-    }
+      if (c.stuckTime > 4.5) {
+        c.resetToTrack();
+        this.reverseTimer = 0;
+        this.reversed = false;
+        return;
+      }
+      if (!this.reversed) { this.reverseTimer = 1.2; this.reversed = true; }
+    } else if (c.stuckTime < 0.5) this.reversed = false;
     if (this.reverseTimer > 0) {
       this.reverseTimer -= dt;
       inp.throttle = 0;

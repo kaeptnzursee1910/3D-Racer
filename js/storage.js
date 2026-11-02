@@ -5,6 +5,7 @@ const DEFAULTS = {
   settings: {
     quality: 'auto',
     steering: 'drag',
+    assist: 'mid',
     autoGas: false,
     sensitivity: 1,
     invertTilt: false,

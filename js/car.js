@@ -4,6 +4,7 @@ import { clamp, damp, wrapAngle, sign, lerp } from './utils.js';
 import { buildCarModel } from './carModel.js';
 
 const G = 9.81;
+const BRAKE_INPUT = { throttle: 0, brake: 1, steer: 0, handbrake: false, nitro: false };
 const WHEELBASE = 2.7;
 
 export class Car {
@@ -55,6 +56,8 @@ export class Car {
     this.susp = 0; this.suspV = 0;
     this.wheelSpin = 0;
     this.prevVF = 0; this.prevVR = 0;
+    this.axF = 0;
+    this.assist = 0.6;
     this.longAcc = 0; this.latAcc = 0;
     this.events = []; // Kollisionen etc. für Effekte/Sound
     this.braking = false;
@@ -132,130 +135,216 @@ export class Car {
     this.drifting = false;
     this.stuckTime = 0;
     this.wrongWay = 0;
+    this.steer = 0;
+    this.axF = 0;
+    this.track.project(this.x, this.z, -1, this.proj);
+    this.trackIdx = this.proj.idx;
   }
 
   update(dt, active = true) {
+    // zwei Unterschritte für eine stabile Reifenphysik
+    const h = dt / 2;
+    this.integrate(h, active);
+    this.integrate(h, active);
+    this.postStep(dt, active);
+  }
+
+  // Dynamisches Einspurmodell (ISO: x vorwärts, y links, Gierrate positiv = Linkskurve)
+  integrate(dt, active) {
     const d = this.def;
-    const inp = active ? this.input : { throttle: 0, brake: 1, steer: 0, handbrake: false, nitro: false };
+    const inp = active ? this.input : BRAKE_INPUT;
     const tr = this.track;
     const p = this.proj;
+    const m = d.mass;
+    const L = WHEELBASE;
+    const b = L * (d.wf ?? 0.52); // Schwerpunkt → Hinterachse
+    const a = L - b; // Schwerpunkt → Vorderachse
+    const Iz = m * a * b * 1.1;
+    const hcg = d.hcg ?? 0.5;
 
-    let fx = Math.sin(this.heading), fz = Math.cos(this.heading);
-    let rx = -fz, rz = fx;
-    let vF = this.vx * fx + this.vz * fz;
-    let vR = this.vx * rx + this.vz * rz;
-    const speedAbs = Math.hypot(this.vx, this.vz);
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    const lx = fz, lz = -fx; // lokales links
+    let vx = this.vx * fx + this.vz * fz;
+    let vy = this.vx * lx + this.vz * lz;
+    let r = this.yawRate;
+    const v = Math.hypot(vx, vy);
 
+    // Untergrund: Seitenstreifen kostet nur wenig Grip und Tempo
     const absLat = Math.abs(p.lateral || 0);
     this.offroad = absLat > tr.halfWidth + 0.6;
-    const offF = d.offroad ?? 0.55;
-    const gripMul = (this.offroad ? 0.6 + (offF - 0.5) * 0.8 : 1) * (tr.def.theme === 'alps' ? 0.93 : 1);
+    const offSkill = clamp(((d.offroad ?? 0.55) - 0.5) / 0.45, 0, 1);
+    const surf = this.offroad ? 0.86 + offSkill * 0.12 : 1;
+    const mu = 1.18 * d.grip * surf * (tr.def.theme === 'alps' ? 0.93 : 1);
 
     // Nitro
-    const wantsNitro = inp.nitro && this.nitro > 0.01 && vF > 4;
+    const wantsNitro = inp.nitro && this.nitro > 0.01 && vx > 4;
     this.nitroActive = wantsNitro;
     if (wantsNitro) this.nitro = Math.max(0, this.nitro - dt / 3.6);
     else this.nitro = Math.min(1, this.nitro + dt * 0.012);
+    const maxSpeed = d.maxSpeed * (this.nitroActive ? 1.2 : 1) * this.speedFactor;
 
-    const maxSpeed = d.maxSpeed * (this.nitroActive ? 1.2 : 1) * (this.offroad ? offF : 1) * this.speedFactor;
+    // Radlasten mit Abtrieb und Gewichtsverlagerung
+    const down = m * 0.00068 * (d.aero ?? 1) * v * v;
+    const shift = clamp((m * this.axF * hcg) / L, -m * G * 0.35, m * G * 0.35);
+    const Fzf = Math.max(m * G * 0.12, (m * G * b) / L + down * 0.48 - shift);
+    const Fzr = Math.max(m * G * 0.12, (m * G * a) / L + down * 0.52 + shift);
 
-    // Längsdynamik
-    let acc = 0;
-    this.braking = false;
-    if (inp.throttle > 0) {
-      if (vF < -0.5) {
-        acc += d.brake * inp.throttle;
-      } else {
-        const r = clamp(vF / maxSpeed, 0, 1.5);
-        const engine = d.accel * 0.72 * Math.max(0, 1 - r * r) * (1 + 0.25 * Math.max(0, 1 - r * 3));
-        acc += inp.throttle * engine;
-      }
-    }
-    if (this.nitroActive) acc += 7.5 * (1 - clamp(vF / maxSpeed, 0, 1));
-    if (inp.brake > 0) {
-      if (vF > 0.8) {
-        acc -= d.brake * inp.brake * (this.drifting ? 0.15 : 1);
-        this.braking = true;
-      } else if (inp.throttle <= 0) {
-        if (vF > -13) acc -= 7 * inp.brake;
-      }
-    }
-    if (vF > maxSpeed) acc -= (vF - maxSpeed) * 1.4;
-    // Roll- und Luftwiderstand
-    acc -= sign(vF) * (0.35 + 0.00022 * vF * vF) * (Math.abs(vF) > 0.05 ? 1 : 0);
-    if (inp.throttle <= 0 && !this.nitroActive) acc -= sign(vF) * 1.2 * clamp(Math.abs(vF), 0, 1);
-    if (this.offroad) acc -= sign(vF) * 2.5 * (1 - (offF - 0.5) * 1.8) * clamp(Math.abs(vF) / 10, 0, 1);
-    if (inp.handbrake) acc -= sign(vF) * 5 * clamp(Math.abs(vF) / 5, 0, 1);
-    // Steigung
-    const slopeAlong = (p.slope || 0) * (fx * p.tx + fz * p.tz);
-    acc -= G * slopeAlong * 0.75;
-
-    const vFold = vF;
-    vF += acc * dt;
-    if (this.braking && vFold > 0 && vF < 0) vF = 0;
-    if (inp.throttle > 0 && vFold < 0 && vF > 0 && inp.brake <= 0) vF = Math.max(vF, 0);
-
-    // Drift-Logik
+    // Lenkung: geschwindigkeitsabhängiger Einschlag, Gegenlenkhilfe
+    const assist = this.assist ?? 0.6;
     const steerIn = clamp(inp.steer, -1, 1);
-    const canDrift = vF > 14;
-    if (!this.drifting && canDrift && Math.abs(steerIn) > 0.35 && (inp.handbrake || (inp.brake > 0.4 && inp.throttle > 0.4))) {
+    this.steer = damp(this.steer, steerIn, this.isPlayer ? 9 : 8, dt);
+    const dMax = (0.58 / (1 + Math.abs(vx) / 16)) * d.steer;
+    const beta = Math.abs(vx) > 3 ? Math.atan2(vy, Math.abs(vx)) : 0;
+    let delta = -this.steer * dMax;
+    if (!inp.handbrake) delta += beta * 0.55 * assist * (1 - Math.abs(steerIn) * 0.5);
+    delta = clamp(delta, -0.62, 0.62);
+
+    // Längskräfte
+    let Fdrive = 0;
+    const rr = clamp(vx / maxSpeed, 0, 1.5);
+    this.braking = false;
+    let Fbrake = 0;
+    if (inp.throttle > 0) {
+      if (vx < -0.5) Fbrake = m * d.brake * 0.6 * inp.throttle;
+      else Fdrive = m * inp.throttle * d.accel * 0.72 * Math.max(0, 1 - rr * rr) * (1 + 0.25 * Math.max(0, 1 - rr * 3));
+    }
+    if (this.nitroActive) Fdrive += m * 7.5 * Math.max(0, 1 - rr);
+    if (inp.brake > 0) {
+      if (vx > 0.8) {
+        Fbrake += m * d.brake * inp.brake;
+        this.braking = true;
+      } else if (inp.throttle <= 0 && vx > -13) Fdrive -= m * 7 * inp.brake;
+    }
+    // Antriebsverteilung
+    const dt0 = d.drive || 'rwd';
+    const rearShare = dt0 === 'fwd' ? 0 : dt0 === 'awd' ? 0.6 : 1;
+    let Fxr = Fdrive * rearShare, Fxf = Fdrive * (1 - rearShare);
+    // Bremse 65 % vorne / 35 % hinten, ABS-artig auf Reibung begrenzt
+    const bs = -Math.sign(vx || 1);
+    Fxf += bs * Math.min(Fbrake * 0.65, mu * Fzf * 0.95);
+    Fxr += bs * Math.min(Fbrake * 0.35, mu * Fzr * 0.95);
+    let rearMu = mu;
+    if (inp.handbrake && Math.abs(vx) > 1) {
+      Fxr += bs * mu * Fzr * 0.5;
+      rearMu = mu * 0.6;
+    }
+    if (this.drifting && inp.throttle > 0.3 && !inp.handbrake) rearMu = mu * 0.86;
+    // Traktions-/Bremskontrolle (Teil der Fahrhilfe): lässt Seitenführung übrig
+    const lateralNeed = clamp(Math.abs(this.steer) * 1.4 + Math.abs(beta) * 6, 0, 1);
+    const tcK = 1 - 0.42 * assist * lateralNeed;
+    if (!inp.handbrake && !this.drifting) {
+      if (Fxr > 0) Fxr = Math.min(Fxr, rearMu * Fzr * tcK);
+      if (Fxf > 0) Fxf = Math.min(Fxf, mu * Fzf * tcK);
+    }
+    if (Fbrake > 0) {
+      Fxf = Math.sign(Fxf) * Math.min(Math.abs(Fxf), mu * Fzf * (1 - 0.25 * assist));
+      Fxr = Math.sign(Fxr) * Math.min(Math.abs(Fxr), rearMu * Fzr * (1 - 0.25 * assist));
+    }
+    // Traktion begrenzen (durchdrehende Räder)
+    const capF = mu * Fzf, capR = rearMu * Fzr;
+    let spin = 0;
+    if (Math.abs(Fxf) > capF) { spin = Math.max(spin, Math.abs(Fxf) / capF - 1); Fxf = Math.sign(Fxf) * capF; }
+    if (Math.abs(Fxr) > capR) { spin = Math.max(spin, Math.abs(Fxr) / capR - 1); Fxr = Math.sign(Fxr) * capR; }
+
+    // Schräglaufwinkel und Seitenkräfte (vereinfachtes Pacejka-Modell)
+    const vxs = Math.max(Math.abs(vx), 6);
+    const sgn = vx >= 0 ? 1 : -1;
+    const af = Math.atan2(vy + a * r, vxs) - delta * sgn;
+    const ar = Math.atan2(vy - b * r, vxs);
+    const tire = (alpha, Fz, muAx, B, Fx) => {
+      const cap = Math.sqrt(Math.max(0, (muAx * Fz) ** 2 - Fx * Fx));
+      return -cap * Math.sin(1.3 * Math.atan(B * alpha));
+    };
+    // bei sehr niedrigem Tempo übernimmt das kinematische Modell (keine künstliche Reifenreibung)
+    const kb = clamp((v - 2) / 5, 0, 1);
+    const Fyf = tire(af, Fzf, mu, 20, Fxf) * kb;
+    const Fyr = tire(ar, Fzr, rearMu, 17, Fxr) * kb;
+
+    // Widerstände
+    let Fres = m * (0.32 + 0.00022 * vx * vx) * Math.sign(vx) * (Math.abs(vx) > 0.05 ? 1 : 0);
+    if (inp.throttle <= 0 && !this.nitroActive) Fres += m * 1.0 * Math.sign(vx) * clamp(Math.abs(vx), 0, 1);
+    if (this.offroad) Fres += m * (0.5 + 0.0004 * vx * vx) * (1 - offSkill * 0.8) * Math.sign(vx) * clamp(Math.abs(vx) / 5, 0, 1);
+    if (vx > maxSpeed) Fres += m * (vx - maxSpeed) * 1.2;
+    const slopeAlong = (p.slope || 0) * (fx * (p.tx || 0) + fz * (p.tz || 0));
+    Fres += m * G * slopeAlong * 0.8;
+
+    const cd = Math.cos(delta), sd = Math.sin(delta);
+    const Fx = Fxr + Fxf * cd - Fyf * sd - Fres;
+    const Fy = Fyr + Fxf * sd + Fyf * cd;
+    let Mz = a * (Fyf * cd + Fxf * sd) - b * Fyr;
+
+    // Stabilitätshilfe: Gierrate sanft Richtung Lenkwunsch dämpfen (abschaltbar)
+    if (assist > 0 && !inp.handbrake && !(this.drifting && inp.throttle > 0.3)) {
+      const rTarget = clamp((vx * Math.tan(delta)) / L, -(mu * G * 1.1) / Math.max(v, 3), (mu * G * 1.1) / Math.max(v, 3));
+      Mz += (rTarget - r) * Iz * 3.2 * assist;
+    }
+
+    // Drift-Begrenzer: hält den Driftwinkel kontrollierbar (ca. 25–40°)
+    if (this.drifting && assist > 0) {
+      const limit = 0.36 + (1 - assist) * 0.35;
+      const excess = beta - clamp(beta, -limit, limit);
+      Mz += Iz * (excess * 22 + beta * 1.2 * assist);
+      if (Math.abs(beta) > limit) Mz += -Iz * r * 1.5;
+    }
+
+    let dvx = Fx / m + vy * r;
+    let dvy = Fy / m - vx * r;
+    const dr = Mz / Iz;
+    const vxOld = vx;
+    vx += dvx * dt;
+    vy += dvy * dt;
+    r += dr * dt;
+    // beim Bremsen nicht rückwärts rollen
+    if (this.braking && vxOld > 0 && vx < 0) vx = 0;
+
+    // Niedriges Tempo: kinematisches Modell überblenden (stabil beim Anfahren/Rangieren)
+    if (kb < 1) {
+      const rKin = (vx * Math.tan(delta)) / L;
+      r = lerp(rKin, r, kb);
+      vy *= lerp(0.6, 1, kb);
+    }
+
+    this.heading = wrapAngle(this.heading + r * dt);
+    this.yawRate = r;
+    const nfx = Math.sin(this.heading), nfz = Math.cos(this.heading);
+    this.vx = nfx * vx + nfz * vy;
+    this.vz = nfz * vx - nfx * vy;
+    this.speed = vx;
+    this.latSpeed = -vy;
+    this.axF = lerp(this.axF || 0, dvx - vy * r, 0.08);
+
+    // Drift-Zustand (für Rauch, Nitro, Anzeige)
+    const slipAng = Math.abs(Math.atan2(vy, Math.max(1, Math.abs(vx))));
+    const trigger = Math.abs(steerIn) > 0.35 && vx > 14 && (inp.handbrake || (inp.brake > 0.4 && inp.throttle > 0.4));
+    if (!this.drifting && (trigger || (slipAng > 0.2 && vx > 14))) {
       this.drifting = true;
-      this.driftDir = sign(steerIn);
+      this.driftDir = sign(steerIn || -vy);
       this.driftTime = 0;
     }
     if (this.drifting) {
       this.driftTime += dt;
-      const slipAngle = Math.abs(Math.atan2(vR, Math.max(1, Math.abs(vF))));
-      if (vF < 9 || (Math.abs(steerIn) < 0.12 && slipAngle < 0.12) || (sign(steerIn) !== this.driftDir && Math.abs(steerIn) > 0.5 && slipAngle < 0.2)) {
-        this.drifting = false;
-      }
+      if (vx < 9 || (slipAng < 0.07 && this.driftTime > 0.3)) this.drifting = false;
+      this.nitro = Math.min(1, this.nitro + dt * 0.16 * clamp(slipAng * 4, 0, 1));
     }
+    this.slip = clamp(Math.max((Math.abs(ar) - 0.09) / 0.15, (Math.abs(af) - 0.11) / 0.18, spin * 2), 0, 1);
 
-    // Lenkung
-    this.steer = damp(this.steer, steerIn, this.isPlayer ? 12 : 9, dt);
-    const maxSteer = (0.6 / (1 + Math.abs(vF) * 0.05)) * d.steer;
-    let yawTarget = -(vF / WHEELBASE) * Math.tan(this.steer * maxSteer);
-    const aLat = 21 * d.grip * gripMul;
-    let yawMax = aLat / Math.max(Math.abs(vF), 3);
-    if (this.drifting) yawMax *= 1.75;
-    yawTarget = clamp(yawTarget, -yawMax, yawMax);
-    if (this.drifting) yawTarget += -this.driftDir * 0.25 * clamp(vF / 30, 0, 1);
-    this.yawRate = damp(this.yawRate, yawTarget, this.drifting ? 5 : 10, dt);
-    this.heading = wrapAngle(this.heading + this.yawRate * dt);
+    // Beschleunigungen für Karosseriebewegung (rechts positiv)
+    this.longAcc = lerp(this.longAcc, dvx - vy * r, 0.1);
+    this.latAcc = lerp(this.latAcc, -(Fy / m), 0.1);
+    this.prevVF = vx;
 
-    // Geschwindigkeit in neues Fahrzeug-Koordinatensystem übertragen
-    const wvx = fx * vF + rx * vR, wvz = fz * vF + rz * vR;
-    fx = Math.sin(this.heading);
-    fz = Math.cos(this.heading);
-    rx = -fz;
-    rz = fx;
-    vF = wvx * fx + wvz * fz;
-    vR = wvx * rx + wvz * rz;
-
-    const latGrip = this.drifting ? 1.6 : 9 * d.grip * gripMul;
-    const vRnew = vR * Math.exp(-latGrip * dt);
-    const lost = Math.abs(vR) - Math.abs(vRnew);
-    if (this.drifting && vF > 0) vF += lost * 0.55;
-    vR = vRnew;
-    this.slip = clamp(Math.abs(vR) / 6, 0, 1);
-
-    if (this.drifting) {
-      this.nitro = Math.min(1, this.nitro + dt * 0.16 * clamp(Math.abs(vR) / 4, 0, 1));
-    }
-
-    this.vx = fx * vF + rx * vR;
-    this.vz = fz * vF + rz * vR;
-    this.speed = vF;
-    this.latSpeed = vR;
-
-    // Beschleunigungen für Karosseriebewegung
-    this.longAcc = lerp(this.longAcc, (vF - this.prevVF) / dt, 0.2);
-    this.latAcc = lerp(this.latAcc, -this.yawRate * vF, 0.2);
-    this.prevVF = vF;
-
-    // Integration
     this.x += this.vx * dt;
     this.z += this.vz * dt;
+  }
+
+  postStep(dt, active) {
+    const d = this.def;
+    const inp = active ? this.input : BRAKE_INPUT;
+    const tr = this.track;
+    const p = this.proj;
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    const vF = this.speed;
+    const speedAbs = Math.hypot(this.vx, this.vz);
 
     // Strecke
     tr.project(this.x, this.z, this.trackIdx, p);

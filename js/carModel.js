@@ -11,35 +11,35 @@ import { makeCanvas, canvasTexture, mergeGeometries, mat4, clamp, lerp } from '.
 export const CARS = [
   {
     id: 'falke', name: 'Falke GT', cls: 'Gran Turismo', desc: 'Eleganter Fastback-GT. Ausgewogen in allen Disziplinen – der ideale Einstieg.',
-    maxSpeed: 72, accel: 12.6, grip: 1.0, steer: 1.0, mass: 1350, brake: 24, offroad: 0.55, engine: 'v6', color: '#c81d25',
+    maxSpeed: 72, accel: 12.6, grip: 1.0, steer: 1.0, mass: 1350, brake: 24, offroad: 0.55, engine: 'v6', drive: 'rwd', wf: 0.52, aero: 1.0, hcg: 0.48, color: '#c81d25',
   },
   {
     id: 'blitz', name: 'Blitz RS', cls: 'Supersportwagen', desc: 'Keilförmiger Mittelmotor-Renner mit gewaltiger Spitze, aber nervösem Heck.',
-    maxSpeed: 80, accel: 12.0, grip: 0.92, steer: 0.95, mass: 1280, brake: 23, offroad: 0.5, engine: 'v10', color: '#f2b705',
+    maxSpeed: 80, accel: 12.0, grip: 0.92, steer: 0.95, mass: 1280, brake: 23, offroad: 0.5, engine: 'v10', drive: 'rwd', wf: 0.42, aero: 1.3, hcg: 0.44, color: '#f2b705',
   },
   {
     id: 'kobra', name: 'Kobra X', cls: 'Hot Hatch', desc: 'Kompakter Kraftzwerg: brutaler Antritt und wieselflink in engen Kurven.',
-    maxSpeed: 69, accel: 15.0, grip: 1.04, steer: 1.12, mass: 1180, brake: 24, offroad: 0.6, engine: 'i4', color: '#1f6fd6',
+    maxSpeed: 69, accel: 15.0, grip: 1.04, steer: 1.12, mass: 1180, brake: 24, offroad: 0.6, engine: 'i4', drive: 'fwd', wf: 0.62, aero: 0.9, hcg: 0.52, color: '#1f6fd6',
   },
   {
     id: 'titan', name: 'Titan V8', cls: 'Muscle-Car', desc: 'Schwerer Achtzylinder: enorme Endgeschwindigkeit, träge in Kurven.',
-    maxSpeed: 78, accel: 13.0, grip: 0.86, steer: 0.88, mass: 1680, brake: 21, offroad: 0.55, engine: 'v8', color: '#202228',
+    maxSpeed: 78, accel: 13.0, grip: 0.86, steer: 0.88, mass: 1680, brake: 21, offroad: 0.55, engine: 'v8', drive: 'rwd', wf: 0.56, aero: 0.8, hcg: 0.55, color: '#202228',
   },
   {
     id: 'libelle', name: 'Libelle', cls: 'Roadster', desc: 'Offener Leichtbau-Roadster mit messerscharfem Handling.',
-    maxSpeed: 67, accel: 13.8, grip: 1.17, steer: 1.16, mass: 960, brake: 26, offroad: 0.55, engine: 'i4', color: '#1fa463',
+    maxSpeed: 67, accel: 13.8, grip: 1.17, steer: 1.16, mass: 960, brake: 26, offroad: 0.55, engine: 'i4', drive: 'rwd', wf: 0.5, aero: 0.9, hcg: 0.45, color: '#1fa463',
   },
   {
     id: 'sturm', name: 'Sturm 4x4', cls: 'Rallye-Geländewagen', desc: 'Hochbeiniger Allradler: langsamer auf Asphalt, aber kaum zu bremsen abseits der Piste.',
-    maxSpeed: 66, accel: 13.0, grip: 0.97, steer: 0.96, mass: 1720, brake: 22, offroad: 0.92, engine: 'v6', color: '#e86a17',
+    maxSpeed: 66, accel: 13.0, grip: 0.97, steer: 0.96, mass: 1720, brake: 22, offroad: 0.92, engine: 'v6', drive: 'awd', wf: 0.55, aero: 0.7, hcg: 0.72, color: '#e86a17',
   },
   {
     id: 'volt', name: 'Volt E', cls: 'Elektro-Hypercar', desc: 'Lautloser Elektro-Bolide mit irrwitziger Beschleunigung und tiefem Schwerpunkt.',
-    maxSpeed: 74, accel: 16.6, grip: 1.07, steer: 1.02, mass: 1560, brake: 25, offroad: 0.55, engine: 'electric', color: '#e8ecf2',
+    maxSpeed: 74, accel: 16.6, grip: 1.07, steer: 1.02, mass: 1560, brake: 25, offroad: 0.55, engine: 'electric', drive: 'awd', wf: 0.48, aero: 1.2, hcg: 0.42, color: '#e8ecf2',
   },
   {
     id: 'phantom', name: 'Phantom LMP', cls: 'Le-Mans-Prototyp', desc: 'Prototyp mit maximalem Abtrieb. Gewinne eine Meisterschaft, um ihn freizuschalten.',
-    maxSpeed: 84, accel: 14.8, grip: 1.15, steer: 1.05, mass: 1000, brake: 27, offroad: 0.5, engine: 'v10', color: '#111317', locked: true,
+    maxSpeed: 84, accel: 14.8, grip: 1.15, steer: 1.05, mass: 1000, brake: 27, offroad: 0.5, engine: 'v10', drive: 'rwd', wf: 0.44, aero: 2.0, hcg: 0.38, color: '#111317', locked: true,
   },
 ];
 

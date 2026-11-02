@@ -111,6 +111,7 @@ export class World {
       this.player = car;
       car.nitro = 0.5;
     }
+    if (this.player) this.player.assist = { off: 0, mid: 0.6, high: 1 }[g.storage.settings.assist] ?? 0.6;
 
     // Geist im Zeitfahren
     if (mode === 'trial') {
