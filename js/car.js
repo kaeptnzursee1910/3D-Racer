@@ -133,6 +133,8 @@ export class Car {
     this.yawRate = 0;
     this.speed = 0;
     this.drifting = false;
+    this.driftMode = false;
+    this.recover = 0;
     this.stuckTime = 0;
     this.wrongWay = 0;
     this.steer = 0;
@@ -228,11 +230,13 @@ export class Car {
       Fxr += bs * mu * Fzr * 0.5;
       rearMu = mu * 0.6;
     }
-    if (this.drifting && inp.throttle > 0.3 && !inp.handbrake) rearMu = mu * 0.86;
+    // nur im bewusst ausgelösten Drift-Modus weniger Grip hinten; beim Abfangen sofort voller Grip
+    if (this.driftMode && inp.throttle > 0.3 && !inp.handbrake) rearMu = mu * 0.86;
+    if (this.recover > 0) rearMu = mu * 1.08;
     // Traktions-/Bremskontrolle (Teil der Fahrhilfe): lässt Seitenführung übrig
     const lateralNeed = clamp(Math.abs(this.steer) * 1.4 + Math.abs(beta) * 6, 0, 1);
-    const tcK = 1 - 0.42 * assist * lateralNeed;
-    if (!inp.handbrake && !this.drifting) {
+    const tcK = 1 - 0.42 * (this.recover > 0 ? Math.max(assist, 0.75) : assist) * lateralNeed;
+    if (!inp.handbrake && !this.driftMode) {
       if (Fxr > 0) Fxr = Math.min(Fxr, rearMu * Fzr * tcK);
       if (Fxf > 0) Fxf = Math.min(Fxf, mu * Fzf * tcK);
     }
@@ -257,8 +261,9 @@ export class Car {
     };
     // bei sehr niedrigem Tempo übernimmt das kinematische Modell (keine künstliche Reifenreibung)
     const kb = clamp((v - 2) / 5, 0, 1);
-    const Fyf = tire(af, Fzf, mu, 20, Fxf) * kb;
-    const Fyr = tire(ar, Fzr, rearMu, 17, Fxr) * kb;
+    // Hinterreifen steifer als vorne → leicht untersteuernde, von Natur aus stabile Abstimmung
+    const Fyf = tire(af, Fzf, mu, 18, Fxf) * kb;
+    const Fyr = tire(ar, Fzr, rearMu, 23, Fxr) * kb;
 
     // Widerstände
     let Fres = m * (0.32 + 0.00022 * vx * vx) * Math.sign(vx) * (Math.abs(vx) > 0.05 ? 1 : 0);
@@ -274,16 +279,23 @@ export class Car {
     let Mz = a * (Fyf * cd + Fxf * sd) - b * Fyr;
 
     // Stabilitätshilfe: Gierrate sanft Richtung Lenkwunsch dämpfen (abschaltbar)
-    if (assist > 0 && !inp.handbrake && !(this.drifting && inp.throttle > 0.3)) {
+    if (assist > 0 && !inp.handbrake && !this.driftMode) {
       const rTarget = clamp((vx * Math.tan(delta)) / L, -(mu * G * 1.1) / Math.max(v, 3), (mu * G * 1.1) / Math.max(v, 3));
       Mz += (rTarget - r) * Iz * 3.2 * assist;
     }
 
+    // Abfangen nach dem Drift: Auto zur Fahrtrichtung ausrichten, Gierbewegung beruhigen
+    if (this.recover > 0 && !inp.handbrake) {
+      const k = Math.max(0.6, assist) * Math.min(1, this.recover / 0.3);
+      Mz += Iz * (beta * 9 - r * 2.2 + (vx * Math.tan(delta)) / L * 2.2) * k;
+    }
+
     // Drift-Begrenzer: hält den Driftwinkel kontrollierbar (ca. 25–40°)
-    if (this.drifting && assist > 0) {
-      const limit = 0.36 + (1 - assist) * 0.35;
+    if (this.driftMode) {
+      const da = Math.max(assist, 0.3);
+      const limit = 0.36 + (1 - da) * 0.4;
       const excess = beta - clamp(beta, -limit, limit);
-      Mz += Iz * (excess * 22 + beta * 1.2 * assist);
+      Mz += Iz * (excess * 22 + beta * 1.2 * da);
       if (Math.abs(beta) > limit) Mz += -Iz * r * 1.5;
     }
 
@@ -313,19 +325,34 @@ export class Car {
     this.latSpeed = -vy;
     this.axF = lerp(this.axF || 0, dvx - vy * r, 0.08);
 
-    // Drift-Zustand (für Rauch, Nitro, Anzeige)
+    // Drift-Modus: nur bewusst auslösen (Handbremse oder Bremse + Gas beim Lenken)
     const slipAng = Math.abs(Math.atan2(vy, Math.max(1, Math.abs(vx))));
     const trigger = Math.abs(steerIn) > 0.35 && vx > 14 && (inp.handbrake || (inp.brake > 0.4 && inp.throttle > 0.4));
-    if (!this.drifting && (trigger || (slipAng > 0.2 && vx > 14))) {
-      this.drifting = true;
-      this.driftDir = sign(steerIn || -vy);
+    if (!this.driftMode && trigger) {
+      this.driftMode = true;
+      this.driftDir = sign(steerIn);
       this.driftTime = 0;
+      this.exitT = 0;
+      this.recover = 0;
     }
-    if (this.drifting) {
+    if (this.recover > 0) this.recover -= dt;
+    if (this.driftMode) {
       this.driftTime += dt;
-      if (vx < 9 || (slipAng < 0.07 && this.driftTime > 0.3)) this.drifting = false;
-      this.nitro = Math.min(1, this.nitro + dt * 0.16 * clamp(slipAng * 4, 0, 1));
+      // Abbruch: Gas weg, Lenkung gerade, kräftig gegenlenken oder bremsen (ohne Gas)
+      const noGas = inp.throttle < 0.3 && !inp.handbrake;
+      const centered = Math.abs(steerIn) < 0.15 && !inp.handbrake;
+      const counter = sign(steerIn) === -this.driftDir && Math.abs(steerIn) > 0.6;
+      const braking = inp.brake > 0.4 && inp.throttle < 0.3;
+      const wantExit = this.driftTime > 0.35 && (noGas || centered || counter || braking);
+      this.exitT = wantExit ? this.exitT + dt : 0;
+      if (vx < 9 || this.exitT > 0.12 || (slipAng < 0.06 && this.driftTime > 0.6)) {
+        this.driftMode = false;
+        this.recover = 0.9;
+      }
     }
+    // sichtbares Driften (Rauch, Nitro-Bonus, Anzeige) auch beim normalen Rutschen
+    this.drifting = this.driftMode || (slipAng > 0.16 && vx > 14);
+    if (this.drifting) this.nitro = Math.min(1, this.nitro + dt * 0.16 * clamp(slipAng * 4, 0, 1));
     this.slip = clamp(Math.max((Math.abs(ar) - 0.09) / 0.15, (Math.abs(af) - 0.11) / 0.18, spin * 2), 0, 1);
 
     // Beschleunigungen für Karosseriebewegung (rechts positiv)
@@ -369,7 +396,7 @@ export class Car {
         this.heading = wrapAngle(this.heading + wrapAngle(facing - this.heading) * clamp(vn * 0.03, 0.05, 0.4));
         this.yawRate *= 0.4;
         if (vn > 1.5) this.events.push({ type: 'wall', power: vn, x: this.x + p.rx * s * 1.0, y: this.y + 0.5, z: this.z + p.rz * s * 1.0 });
-        if (vn > 6) this.drifting = false;
+        if (vn > 6) { this.drifting = false; this.driftMode = false; this.recover = 0.5; }
       }
       this.scraping = true;
     } else this.scraping = false;
