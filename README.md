@@ -4,6 +4,8 @@ Ein aufwendiges 3D-Rennspiel, das komplett im Browser läuft – optimiert für 
 
 Alles wird prozedural erzeugt: Strecken, Landschaften, Fahrzeuge, Texturen, Soundeffekte und die Synthwave-Musik. Es gibt keine externen Assets und keinen Build-Schritt – nur statische Dateien und [three.js](https://threejs.org) (lokal in `vendor/`).
 
+Spielen: https://kaeptnzursee.github.io/<3D-Racer>/
+
 ## Features
 
 - **Mehrspieler für bis zu 8 Geräte** (Party mit 4-stelligem Code oder Einladungslink, Lobby mit Chat, Autowahl, Bereit-Status, Ping; freie Plätze füllen Computergegner auf)
